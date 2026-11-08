@@ -125,8 +125,9 @@ object WidgetUpdater {
         views.setViewVisibility(side.clock, View.VISIBLE)
     }
 
-    /** "Wins · Resign" on the winner's row; the reason alone on Black's row if the winner is unknown. */
+    /** "Wins · Resign" on the winner's row, "Draw" on both, or the result on Black's row if the winner is unknown. */
     private fun resultNote(game: GameInfo, side: Side): String? {
+        if (game.isDraw) return "Draw" // on both rows
         val reason = game.resultReason
         return when (game.winner) {
             side.index -> listOfNotNull("Wins", reason).joinToString(" · ")

@@ -129,12 +129,29 @@ class ProtocolTest {
     }
 
     @Test
+    fun drawsHaveNoWinner() {
+        // The lower-rated player gains rating in a draw; that must not make them the winner.
+        fun result(marker: String) = GameParser.parseGame(JSONObject("""{"id":"g","players":[
+            {"id":"b","oldR":2000,"newR":1998},{"id":"w","oldR":1900,"newR":1902}],
+            "position":{"moves":[{"m":"B[]"},{"m":"W[]","s":"$marker"}]},"finished":true}"""))!!
+        for (marker in listOf("DRAW", "DRAW:SCORE", "SCORE:0", "SCORE:0.0")) {
+            val g = result(marker)
+            assertTrue(marker, g.isDraw)
+            assertNull(marker, g.winner)
+            assertEquals(marker, "Draw", g.resultLabel)
+        }
+        assertFalse(result("SCORE:0.5").isDraw)
+        assertEquals(1, result("SCORE:-0.5").winner)
+    }
+
+    @Test
     fun resultReasons() {
         fun reason(marker: String) = GameParser.parseGame(JSONObject(
             """{"id":"g","players":[],"position":{"moves":[{"s":"$marker"}]}}"""))!!.resultReason
         assertEquals("Resign", reason("LOSE:RESIGN"))
         assertEquals("Disconnect", reason("LOSE:DISCONNECT"))
-        assertEquals("Time", reason("TIME"))
+        assertEquals("Timeout", reason("TIME"))
+        assertEquals("Timeout", reason("LOSE:TIMEUP"))
         assertEquals("12 pts", reason("SCORE:12"))
         assertEquals("10 pts", reason("SCORE:-10"))
         assertEquals("6.5 pts", reason("SCORE:-6.5"))

@@ -34,7 +34,7 @@ suggests moves or stores player data.
 - **Players and clocks:** Black's name, rank and rating above the board and White's below,
   marked with ●/○ bullets chosen to match the text colour. Each player's remaining time is on the
   right, and the side to move counts down live. The result ("Wins · Resign", "Wins · 4 pts")
-  shows on the winner's row.
+  shows on the winner's row, or "Draw" on both.
 - **Looks:** background and board opacity sliders.
 - **Battery-friendly:** the connection pauses once the screen has been off for 30 s and
   resumes when it's back on. While spectating, Android shows a silent notification with a Stop
@@ -119,10 +119,13 @@ issue or get in touch.
 10. **Keep-alive:** the widget sends an empty line every 60 s, copying the official app. It's
    unconfirmed whether the server needs it.
 
+11. **Draws:** no drawn game has been seen yet. The widget treats any result marker
+    mentioning `DRAW`, or a score of exactly 0, as a draw ("Draw" on both rows, no winner).
+
 ### Project
 
-11. **Release signing:** release builds are signed with the debug key. Distribution needs a
+12. **Release signing:** release builds are signed with the debug key. Distribution needs a
     real signing key, kept out of the repo.
-12. **Name and package:** the app name ("GoQuest Widget") and package
+13. **Name and package:** the app name ("GoQuest Widget") and package
     (`com.naptimegames.goquestwidget`) may need changing, depending on MindWalk's preference.
-13. **Licensing:** decide after talking to MindWalk (open source, exclusive, or transfer).
+14. **Licensing:** decide after talking to MindWalk (open source, exclusive, or transfer).

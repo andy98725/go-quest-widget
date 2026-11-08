@@ -43,21 +43,34 @@ data class GameInfo(
     /** Why the game ended, from the last status marker: "Resign", "Time", "4 pts", ... */
     val resultReason: String?
         get() {
+            if (isDraw) return null
             val marker = statusMarkers.lastOrNull() ?: return null
             val kind = marker.substringBefore(':').uppercase()
             val detail = marker.substringAfter(':', "")
             return when {
                 // The score is signed from Black's side ("SCORE:-10" = White by 10); show the margin.
                 kind == "SCORE" && detail.isNotEmpty() -> "${detail.trimStart('-', '+')} pts"
-                detail.isEmpty() -> kind.lowercase().replaceFirstChar { it.uppercase() }.takeIf { it.isNotEmpty() }
-                else -> detail.lowercase().replaceFirstChar { it.uppercase() }
+                detail.isEmpty() -> friendly(kind)
+                else -> friendly(detail.uppercase())
             }
         }
 
-    /** Short human-readable result, e.g. "B+Resign", or null while the game is running. */
+    /**
+     * A drawn game. GoQuest's draw marker hasn't been observed yet; this accepts any marker
+     * mentioning DRAW, or a score of exactly 0.
+     */
+    val isDraw: Boolean
+        get() {
+            val marker = statusMarkers.lastOrNull()?.uppercase() ?: return false
+            if ("DRAW" in marker) return true
+            return marker.startsWith("SCORE:") && marker.substringAfter(':').toDoubleOrNull() == 0.0
+        }
+
     /** 0 = Black, 1 = White: from rating changes, else from the sign of a score result. */
     val winner: Int?
         get() {
+            // In a draw the lower-rated player still gains rating, so ratings can't pick a winner.
+            if (isDraw) return null
             winnerIndex?.let { return it }
             val marker = statusMarkers.lastOrNull() ?: return null
             if (!marker.uppercase().startsWith("SCORE:")) return null
@@ -72,6 +85,7 @@ data class GameInfo(
     val resultLabel: String?
         get() {
             if (!isOver) return null
+            if (isDraw) return "Draw"
             val reason = resultReason
             val winner = when (winner) {
                 0 -> "B"
@@ -88,4 +102,13 @@ data class GameInfo(
 
     /** A game is over once the server marks it finished or a status marker (resign, timeout, ...) appears. */
     val isOver: Boolean get() = finished || statusMarkers.isNotEmpty()
+
+    private companion object {
+        /** Readable names for result words, e.g. "TIMEUP" -> "Timeout". */
+        fun friendly(word: String): String? = when (word) {
+            "" -> null
+            "TIMEUP", "TIME", "TIMEOUT" -> "Timeout"
+            else -> word.lowercase().replaceFirstChar { it.uppercase() }
+        }
+    }
 }
