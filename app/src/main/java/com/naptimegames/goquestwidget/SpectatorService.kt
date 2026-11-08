@@ -15,7 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import com.naptimegames.goquestwidget.model.BoardMode
+import com.naptimegames.goquestwidget.model.WidgetSettings
 import com.naptimegames.goquestwidget.protocol.GoQuestClient
 import com.naptimegames.goquestwidget.protocol.Protocol
 import com.naptimegames.goquestwidget.ui.SettingsActivity
@@ -32,7 +32,12 @@ class SpectatorService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var client: GoQuestClient? = null
     private var api = Protocol.ApiTable()
-    private lateinit var controller: SpectatorController
+    private var ready = false
+    private val hub = SubscriptionHub { msg, body -> client?.send(api.id(msg), body) }
+
+    /** One controller per distinct game-picking setup; its widgets all show its game. */
+    private class Group(val controller: SpectatorController, var widgetIds: Set<Int>)
+    private val groups = LinkedHashMap<WidgetSettings.GroupKey, Group>()
     private var reconnectDelayMs = MIN_RECONNECT_MS
     private val reconnect = Runnable { connect() }
     private var screenReceiverRegistered = false
@@ -43,7 +48,6 @@ class SpectatorService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        controller = makeController(Prefs.boardMode(this))
         registerReceiver(screenReceiver, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
@@ -52,7 +56,7 @@ class SpectatorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        goForeground(controller.state)
+        goForeground()
         when (intent?.action) {
             ACTION_STOP -> {
                 Prefs.setEnabled(this, false)
@@ -68,6 +72,11 @@ class SpectatorService : Service() {
                 if (client == null) restart()
             }
         }
+        if (groups.isEmpty()) {
+            // No widgets left to feed.
+            shutdown()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 
@@ -77,44 +86,73 @@ class SpectatorService : Service() {
         client?.close()
         client = null
         if (screenReceiverRegistered) unregisterReceiver(screenReceiver)
-        controller.stop()
-        latestState = null
+        groups.values.forEach { it.controller.stop() }
+        groups.clear()
+        states.clear()
         super.onDestroy()
     }
 
-    private fun makeController(mode: BoardMode) = SpectatorController(
-        mode = mode,
-        topN = Prefs.topN(this),
-        switchDelayMs = Prefs.postGameDelaySeconds(this) * 1000L,
-        send = { msg, body -> client?.send(api.id(msg), body) },
-        scheduler = { delay, task ->
-            val r = Runnable(task)
-            main.postDelayed(r, delay)
-            SpectatorController.Cancellable { main.removeCallbacks(r) }
-        },
-        onState = ::onState,
-    )
+    private fun makeController(key: WidgetSettings.GroupKey): SpectatorController {
+        lateinit var c: SpectatorController
+        c = SpectatorController(
+            mode = key.mode,
+            topN = key.topN,
+            switchDelayMs = key.postGameDelaySeconds * 1000L,
+            send = { msg, body -> hub.sender(c)(msg, body) },
+            scheduler = { delay, task ->
+                val r = Runnable(task)
+                main.postDelayed(r, delay)
+                SpectatorController.Cancellable { main.removeCallbacks(r) }
+            },
+            onState = { state -> onState(key, state) },
+        )
+        return c
+    }
 
-    /** Applies the current settings, reconnecting only if the board mode or server changed. */
-    private fun restart() {
-        val mode = Prefs.boardMode(this)
-        val server = Prefs.server(this)
-        // These take effect at the next pick / finished game; no reconnect needed.
-        controller.topN = Prefs.topN(this)
-        controller.switchDelayMs = Prefs.postGameDelaySeconds(this) * 1000L
-        val changed = mode != controller.mode || server != connectedServer
-        if (!changed && client != null) return
-        if (mode != controller.mode) {
-            controller.stop()
-            controller = makeController(mode)
+    /**
+     * Matches controllers to the widgets on the home screen: one per distinct setup. New
+     * setups start straight away on the live connection; ones no widget uses any more stop.
+     */
+    private fun syncGroups() {
+        val ids = WidgetUpdater.widgetIds(this)
+        // Widgets from before per-widget settings (or not yet configured) take the current
+        // defaults as their own, so later changes to the defaults don't move them.
+        for (id in ids) if (!Prefs.hasWidget(this, id)) Prefs.saveWidget(this, id, Prefs.widget(this, id))
+        val wanted = ids.groupBy { Prefs.widget(this, it).groupKey }.mapValues { it.value.toSet() }
+        for (key in groups.keys - wanted.keys) {
+            groups.remove(key)?.controller?.stop()
         }
+        for ((key, members) in wanted) {
+            val existing = groups[key]
+            if (existing != null) {
+                existing.widgetIds = members
+            } else {
+                val c = makeController(key)
+                groups[key] = Group(c, members)
+                when {
+                    ready -> c.onReady()
+                    client != null -> c.onConnecting()
+                }
+            }
+        }
+        states.keys.retainAll(ids.toSet())
+        // Redraw everyone: widgets may have moved groups or changed opacity.
+        for ((_, g) in groups) onState(g.controller.state, g)
+    }
+
+    /** Applies the current settings, reconnecting only if the server changed or we're offline. */
+    private fun restart() {
+        syncGroups()
+        if (groups.isEmpty()) return
+        val server = Prefs.server(this)
+        if (client != null && server == connectedServer) return
         disconnect()
         reconnectDelayMs = MIN_RECONNECT_MS
         if (isScreenOn()) {
-            ProtocolLog.add("--", if (changed && connectedServer != null) "Settings changed, reconnecting" else "Starting")
+            ProtocolLog.add("--", if (connectedServer != null) "Settings changed, reconnecting" else "Starting")
             connect()
         } else {
-            onState(controller.state.copy(status = SpectatorState.Status.OFFLINE, message = "Paused while screen is off"))
+            groups.values.forEach { it.controller.onDisconnected("Paused while screen is off") }
         }
     }
 
@@ -122,7 +160,9 @@ class SpectatorService : Service() {
         main.removeCallbacks(reconnect)
         main.removeCallbacks(keepAlive)
         client?.close()
-        controller.onConnecting()
+        ready = false
+        hub.reset()
+        groups.values.forEach { it.controller.onConnecting() }
         val (host, port) = Prefs.server(this)
         connectedServer = host to port
         lateinit var c: GoQuestClient
@@ -135,11 +175,13 @@ class SpectatorService : Service() {
                 if (error != null) ProtocolLog.add("--", "Server didn't send its message table ($error); using known ids")
                 this@SpectatorService.api = api
                 reconnectDelayMs = MIN_RECONNECT_MS
+                ready = true
                 main.postDelayed(keepAlive, KEEPALIVE_MS)
-                controller.onReady()
+                groups.values.toList().forEach { it.controller.onReady() }
             }
             override fun onMessage(name: String, body: JSONObject) = onMain {
-                api.lookup(name)?.let { controller.onMessage(it, body) }
+                val msg = api.lookup(name) ?: return@onMain
+                groups.values.toList().forEach { it.controller.onMessage(msg, body) }
             }
             override fun onClosed(reason: String) = onMain { onConnectionLost(reason) }
             override fun onLine(outgoing: Boolean, text: String) = ProtocolLog.add(if (outgoing) ">>" else "<<", text)
@@ -157,7 +199,7 @@ class SpectatorService : Service() {
 
     /** Mirrors the fields the official app sends, identifying this client honestly. */
     private fun startBody(): JSONObject {
-        val gtype = controller.gtype
+        val gtype = groups.keys.firstOrNull()?.mode?.gtype ?: "go9"
         val env = "goquest-widget:${BuildConfig.VERSION_NAME}:${Build.MODEL.replace(':', ' ')}:android:${Build.VERSION.SDK_INT}:$gtype"
         return JSONObject()
             .put("gtype", gtype)
@@ -169,8 +211,9 @@ class SpectatorService : Service() {
     private fun onConnectionLost(reason: String) {
         ProtocolLog.add("!!", reason)
         client = null
+        ready = false
         main.removeCallbacks(keepAlive)
-        controller.onDisconnected("$reason — retrying in ${reconnectDelayMs / 1000}s")
+        groups.values.forEach { it.controller.onDisconnected("$reason — retrying in ${reconnectDelayMs / 1000}s") }
         if (isScreenOn()) {
             main.postDelayed(reconnect, reconnectDelayMs)
             reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_MS)
@@ -182,27 +225,34 @@ class SpectatorService : Service() {
         main.removeCallbacks(keepAlive)
         client?.close()
         client = null
+        ready = false
     }
 
     private fun shutdown() {
         disconnect()
-        controller.stop()
+        groups.values.forEach { it.controller.stop() }
+        groups.clear()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun onState(state: SpectatorState) {
-        latestState = state
-        WidgetUpdater.update(this, state)
+    private fun onState(key: WidgetSettings.GroupKey, state: SpectatorState) {
+        val g = groups[key] ?: return
+        onState(state, g)
+    }
+
+    private fun onState(state: SpectatorState, g: Group) {
+        for (id in g.widgetIds) states[id] = state
+        WidgetUpdater.update(this, g.widgetIds, state)
         if (destroyed) return
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(state))
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
     }
 
     /** Disconnects once the screen has been off for [SCREEN_OFF_GRACE_MS], so a quick glance doesn't reconnect. */
     private val pauseForScreenOff = Runnable {
         ProtocolLog.add("--", "Screen off, pausing")
         disconnect()
-        controller.onDisconnected("Paused while screen is off")
+        groups.values.forEach { it.controller.onDisconnected("Paused while screen is off") }
     }
 
     private val screenReceiver = object : BroadcastReceiver() {
@@ -223,8 +273,8 @@ class SpectatorService : Service() {
 
     private fun isScreenOn() = getSystemService(PowerManager::class.java).isInteractive
 
-    private fun goForeground(state: SpectatorState) {
-        val n = buildNotification(state)
+    private fun goForeground() {
+        val n = buildNotification()
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -232,19 +282,24 @@ class SpectatorService : Service() {
         }
     }
 
-    private fun buildNotification(state: SpectatorState): Notification {
+    private fun buildNotification(): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL, getString(R.string.channel_name), NotificationManager.IMPORTANCE_MIN),
             )
         }
-        val game = state.game
+        val all = groups.values.map { it.controller.state }
+        val watching = all.filter { it.status == SpectatorState.Status.WATCHING && it.game != null }
         val text = when {
-            game != null && state.status == SpectatorState.Status.WATCHING ->
-                "${game.black?.name ?: "?"} vs ${game.white?.name ?: "?"} · move ${game.moveCount}"
-            else -> state.message ?: state.status.name.lowercase().replaceFirstChar { it.uppercase() }
+            all.isEmpty() -> getString(R.string.status_stopped)
+            all.size == 1 && watching.size == 1 -> watching[0].game!!.let {
+                "${it.black?.name ?: "?"} vs ${it.white?.name ?: "?"} · move ${it.moveCount}"
+            }
+            all.size == 1 -> all[0].message ?: all[0].status.name.lowercase().replaceFirstChar { it.uppercase() }
+            else -> getString(R.string.notification_many, watching.size, all.size)
         }
+        val title = all.map { it.mode.label }.distinct().joinToString(", ").ifEmpty { "GoQuest" }
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, SettingsActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
@@ -253,7 +308,7 @@ class SpectatorService : Service() {
         )
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_go)
-            .setContentTitle(getString(R.string.notification_title, state.mode.label))
+            .setContentTitle(getString(R.string.notification_title, title))
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
@@ -273,9 +328,12 @@ class SpectatorService : Service() {
         private const val KEEPALIVE_MS = 60_000L
         private const val SCREEN_OFF_GRACE_MS = 30_000L
 
-        @Volatile
-        var latestState: SpectatorState? = null
-            private set
+        /** The latest state shown on each widget, by widget id; empty when not running. */
+        private val states = java.util.concurrent.ConcurrentHashMap<Int, SpectatorState>()
+
+        fun stateFor(widgetId: Int): SpectatorState? = states[widgetId]
+
+        val isRunning: Boolean get() = states.isNotEmpty()
 
         fun intent(ctx: Context, action: String) = Intent(ctx, SpectatorService::class.java).setAction(action)
 

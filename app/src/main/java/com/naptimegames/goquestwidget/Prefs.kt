@@ -2,6 +2,7 @@ package com.naptimegames.goquestwidget
 
 import android.content.Context
 import com.naptimegames.goquestwidget.model.BoardMode
+import com.naptimegames.goquestwidget.model.WidgetSettings
 import com.naptimegames.goquestwidget.protocol.Protocol
 
 object Prefs {
@@ -38,6 +39,58 @@ object Prefs {
     fun backgroundOpacity(ctx: Context): Int = prefs(ctx).getInt("bg_opacity", 90).coerceIn(0, 100)
     fun setBackgroundOpacity(ctx: Context, percent: Int) =
         prefs(ctx).edit().putInt("bg_opacity", percent.coerceIn(0, 100)).apply()
+
+    // ---- Per-widget settings. The global values above are the defaults for new widgets. ----
+
+    fun defaults(ctx: Context) = WidgetSettings(
+        mode = boardMode(ctx),
+        topN = topN(ctx),
+        postGameDelaySeconds = postGameDelaySeconds(ctx),
+        backgroundOpacity = backgroundOpacity(ctx),
+        boardOpacity = boardOpacity(ctx),
+    )
+
+    fun saveDefaults(ctx: Context, s: WidgetSettings) {
+        setBoardMode(ctx, s.mode)
+        setTopN(ctx, s.topN)
+        setPostGameDelaySeconds(ctx, s.postGameDelaySeconds)
+        setBackgroundOpacity(ctx, s.backgroundOpacity)
+        setBoardOpacity(ctx, s.boardOpacity)
+    }
+
+    /** A widget's settings; anything it hasn't set falls back to the defaults. */
+    fun widget(ctx: Context, id: Int): WidgetSettings {
+        val p = prefs(ctx)
+        val d = defaults(ctx)
+        val k = "w${id}_"
+        return WidgetSettings(
+            mode = BoardMode.fromKey(p.getString(k + "mode", null)) ?: d.mode,
+            topN = p.getInt(k + "top_n", d.topN).coerceIn(1, MAX_TOP_N),
+            postGameDelaySeconds = p.getInt(k + "delay", d.postGameDelaySeconds).coerceIn(0, MAX_POST_GAME_DELAY_S),
+            backgroundOpacity = p.getInt(k + "bg", d.backgroundOpacity).coerceIn(0, 100),
+            boardOpacity = p.getInt(k + "board", d.boardOpacity).coerceIn(0, 100),
+        )
+    }
+
+    fun hasWidget(ctx: Context, id: Int): Boolean = prefs(ctx).contains("w${id}_mode")
+
+    fun saveWidget(ctx: Context, id: Int, s: WidgetSettings) {
+        val k = "w${id}_"
+        prefs(ctx).edit()
+            .putString(k + "mode", s.mode.key)
+            .putInt(k + "top_n", s.topN.coerceIn(1, MAX_TOP_N))
+            .putInt(k + "delay", s.postGameDelaySeconds.coerceIn(0, MAX_POST_GAME_DELAY_S))
+            .putInt(k + "bg", s.backgroundOpacity.coerceIn(0, 100))
+            .putInt(k + "board", s.boardOpacity.coerceIn(0, 100))
+            .apply()
+    }
+
+    fun deleteWidget(ctx: Context, id: Int) {
+        val k = "w${id}_"
+        val e = prefs(ctx).edit()
+        listOf("mode", "top_n", "delay", "bg", "board").forEach { e.remove(k + it) }
+        e.apply()
+    }
 
     /** Random per-install id, sent as `vendor_id` like the official app does. */
     fun vendorId(ctx: Context): String {

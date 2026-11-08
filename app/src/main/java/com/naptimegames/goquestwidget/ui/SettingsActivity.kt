@@ -21,16 +21,19 @@ import com.naptimegames.goquestwidget.ProtocolLog
 import com.naptimegames.goquestwidget.R
 import com.naptimegames.goquestwidget.SpectatorService
 import com.naptimegames.goquestwidget.model.BoardMode
+import com.naptimegames.goquestwidget.model.WidgetSettings
 import com.naptimegames.goquestwidget.widget.WidgetUpdater
 
 /**
- * The app screen and the widget configuration screen (on add, or long-press → Reconfigure).
- * Settings apply as soon as they change.
+ * The widget configuration screen (on add, or long-press → Reconfigure), which edits that
+ * widget, and the app screen, which edits the defaults for new widgets. The server and the
+ * protocol log under "Show advanced" are shared. Changes apply as soon as they're made.
  */
 class SettingsActivity : Activity() {
 
     private val main = Handler(Looper.getMainLooper())
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+    private lateinit var settings: WidgetSettings
     private lateinit var log: TextView
     private lateinit var status: TextView
     private lateinit var advanced: View
@@ -52,6 +55,8 @@ class SettingsActivity : Activity() {
         // Backing out of the first configuration must not add the widget.
         if (configuring) setResult(RESULT_CANCELED, resultIntent())
 
+        settings = if (configuring) Prefs.widget(this, widgetId) else Prefs.defaults(this)
+        findViewById<TextView>(R.id.scope_hint).setText(if (configuring) R.string.scope_widget else R.string.scope_defaults)
         setUpBoardModes()
         setUpTopN()
         setUpPostGameDelay()
@@ -60,6 +65,8 @@ class SettingsActivity : Activity() {
         val done = findViewById<Button>(R.id.done)
         done.visibility = if (configuring) View.VISIBLE else View.GONE
         done.setOnClickListener {
+            // Saving the first time also adds the widget to the service's groups.
+            Prefs.saveWidget(this, widgetId, settings)
             SpectatorService.start(this, SpectatorService.ACTION_RELOAD)
             setResult(RESULT_OK, resultIntent())
             finish()
@@ -68,36 +75,50 @@ class SettingsActivity : Activity() {
         setUpAdvanced()
     }
 
+    /**
+     * Saves a change to whatever this screen edits: the widget being configured, or the
+     * defaults for new widgets. Board, top N and delay may move the widget to another game;
+     * opacity only needs a redraw.
+     */
+    private fun update(regroup: Boolean, change: (WidgetSettings) -> WidgetSettings) {
+        val next = change(settings)
+        if (next == settings) return
+        settings = next
+        if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+            Prefs.saveDefaults(this, next)
+            return
+        }
+        Prefs.saveWidget(this, widgetId, next)
+        if (regroup) applyToRunningService()
+        WidgetUpdater.refresh(this, listOf(widgetId))
+    }
+
     private fun setUpBoardModes() {
         val group = findViewById<RadioGroup>(R.id.mode_group)
-        val current = Prefs.boardMode(this)
         for (mode in BoardMode.entries) {
             group.addView(RadioButton(this).apply {
                 id = View.generateViewId()
                 text = mode.label
                 tag = mode
-                isChecked = mode == current
+                isChecked = mode == settings.mode
             })
         }
         group.setOnCheckedChangeListener { g, checkedId ->
             val mode = g.findViewById<RadioButton>(checkedId)?.tag as? BoardMode ?: return@setOnCheckedChangeListener
-            if (mode == Prefs.boardMode(this)) return@setOnCheckedChangeListener
-            Prefs.setBoardMode(this, mode)
-            applyToRunningService()
-            WidgetUpdater.refresh(this)
+            update(regroup = true) { it.copy(mode = mode) }
         }
     }
 
     private fun setUpTopN() {
-        bindNumber(R.id.top_n, Prefs.topN(this), 1..Prefs.MAX_TOP_N, getString(R.string.top_n_range, Prefs.MAX_TOP_N)) {
-            Prefs.setTopN(this, it)
+        bindNumber(R.id.top_n, settings.topN, 1..Prefs.MAX_TOP_N, getString(R.string.top_n_range, Prefs.MAX_TOP_N)) { n ->
+            update(regroup = true) { it.copy(topN = n) }
         }
     }
 
     private fun setUpPostGameDelay() {
         val max = Prefs.MAX_POST_GAME_DELAY_S
-        bindNumber(R.id.post_game_delay, Prefs.postGameDelaySeconds(this), 0..max, getString(R.string.post_game_delay_range, max)) {
-            Prefs.setPostGameDelaySeconds(this, it)
+        bindNumber(R.id.post_game_delay, settings.postGameDelaySeconds, 0..max, getString(R.string.post_game_delay_range, max)) { n ->
+            update(regroup = true) { it.copy(postGameDelaySeconds = n) }
         }
     }
 
@@ -115,18 +136,21 @@ class SettingsActivity : Activity() {
                     return
                 }
                 save(n)
-                applyToRunningService()
             }
         })
     }
 
     private fun setUpOpacity() {
-        bindOpacity(R.id.opacity, R.id.opacity_value, Prefs.backgroundOpacity(this), Prefs::setBackgroundOpacity)
-        bindOpacity(R.id.board_opacity, R.id.board_opacity_value, Prefs.boardOpacity(this), Prefs::setBoardOpacity)
+        bindOpacity(R.id.opacity, R.id.opacity_value, settings.backgroundOpacity) { p ->
+            update(regroup = false) { it.copy(backgroundOpacity = p) }
+        }
+        bindOpacity(R.id.board_opacity, R.id.board_opacity_value, settings.boardOpacity) { p ->
+            update(regroup = false) { it.copy(boardOpacity = p) }
+        }
     }
 
-    /** A 0-100% slider that saves on change and redraws the widget live. */
-    private fun bindOpacity(barId: Int, valueId: Int, initial: Int, save: (android.content.Context, Int) -> Unit) {
+    /** A 0-100% slider that saves on change, so the widget redraws live. */
+    private fun bindOpacity(barId: Int, valueId: Int, initial: Int, save: (Int) -> Unit) {
         val bar = findViewById<SeekBar>(barId)
         val value = findViewById<TextView>(valueId)
         bar.progress = initial
@@ -134,10 +158,7 @@ class SettingsActivity : Activity() {
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                 value.text = getString(R.string.percent, progress)
-                if (fromUser) {
-                    save(this@SettingsActivity, progress)
-                    WidgetUpdater.refresh(this@SettingsActivity)
-                }
+                if (fromUser) save(progress)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
@@ -177,7 +198,7 @@ class SettingsActivity : Activity() {
 
     /** Reloads the service if it's running; it reconnects only when something relevant changed. */
     private fun applyToRunningService() {
-        if (SpectatorService.latestState != null) SpectatorService.start(this, SpectatorService.ACTION_RELOAD)
+        if (SpectatorService.isRunning) SpectatorService.start(this, SpectatorService.ACTION_RELOAD)
     }
 
     override fun onResume() {
@@ -191,8 +212,10 @@ class SettingsActivity : Activity() {
     }
 
     private fun refreshAdvanced() {
-        val s = SpectatorService.latestState
-        status.text = if (s == null) getString(R.string.status_stopped) else listOfNotNull(
+        val s = if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) SpectatorService.stateFor(widgetId) else null
+        status.text = if (s == null) {
+            getString(if (SpectatorService.isRunning) R.string.status_running else R.string.status_stopped)
+        } else listOfNotNull(
             s.status.name.lowercase().replaceFirstChar { it.uppercase() },
             s.game?.let { "${it.black?.name} vs ${it.white?.name}, move ${it.moveCount}" },
             s.message,

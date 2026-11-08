@@ -116,6 +116,19 @@ class ProtocolTest {
     }
 
     @Test
+    fun negativeScoreIsAWhiteWin() {
+        // Without rating data, the score's sign decides the winner.
+        val g = GameParser.parseGame(JSONObject("""{"id":"g","players":[],
+            "position":{"moves":[{"m":"B[]"},{"m":"W[]","s":"SCORE:-10"}]},"finished":true}"""))!!
+        assertEquals(1, g.winner)
+        assertEquals("W+10 pts", g.resultLabel)
+        // Rating changes, when present, take precedence.
+        assertEquals(0, GameParser.parseGame(JSONObject("""{"id":"g","players":[
+            {"id":"b","oldR":1,"newR":2},{"id":"w","oldR":2,"newR":1}],
+            "position":{"moves":[{"s":"SCORE:-10"}]}}"""))!!.winner)
+    }
+
+    @Test
     fun resultReasons() {
         fun reason(marker: String) = GameParser.parseGame(JSONObject(
             """{"id":"g","players":[],"position":{"moves":[{"s":"$marker"}]}}"""))!!.resultReason
@@ -123,6 +136,8 @@ class ProtocolTest {
         assertEquals("Disconnect", reason("LOSE:DISCONNECT"))
         assertEquals("Time", reason("TIME"))
         assertEquals("12 pts", reason("SCORE:12"))
+        assertEquals("10 pts", reason("SCORE:-10"))
+        assertEquals("6.5 pts", reason("SCORE:-6.5"))
     }
 
     @Test

@@ -10,6 +10,10 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <TextView
+            android:id="@+id/scope_hint"
+            style="@style/SettingsHint" />
+
         <!-- Board -->
         <TextView
             style="@style/SettingsHeader"

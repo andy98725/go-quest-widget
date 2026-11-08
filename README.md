@@ -41,9 +41,13 @@ suggests moves or stores player data.
   button.
 - **Tap the board** to open the GoQuest app.
 
-Settings open when you add the widget, and later via long-press → Reconfigure (Android 12+) or
-the app. Under *Show advanced* are the server address, start/stop, the app version and a
-protocol log with a Share button for troubleshooting.
+- **Per-widget settings:** each widget has its own board, top N, post-game delay and
+  opacity, so you can keep a 9×9 and a 13×13 widget side by side. All widgets share one
+  connection. Widgets with the same board, top N and delay show the same game.
+
+Settings open when you add a widget, and later via long-press → Reconfigure (Android 12+). The
+app itself sets the defaults for new widgets. Under *Show advanced* are the server address,
+start/stop, the app version and a protocol log with a Share button for troubleshooting.
 
 ## Install
 
@@ -71,7 +75,8 @@ against a synthetic server transcript, not recorded games.
 |---|---|
 | `protocol/` | Message framing, parsing, TCP client |
 | `SpectatorController.kt` | Picks a game (top N, size filter, fewest moves), follows it, switches after it ends. No Android dependencies; unit-tested |
-| `SpectatorService.kt` | Foreground service that owns the connection and updates widgets |
+| `SpectatorService.kt` | Foreground service that owns the connection, runs one game picker per distinct widget setup, and updates widgets |
+| `SubscriptionHub.kt` | Shares the connection between pickers: stops watching a game or list only when no widget needs it |
 | `model/` | Go board with captures, game info, board modes |
 | `widget/` | Widget provider, layout updates, board renderer |
 | `ui/SettingsActivity.kt` | Settings and widget configuration screen |

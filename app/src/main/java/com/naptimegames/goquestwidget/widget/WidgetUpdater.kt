@@ -18,24 +18,34 @@ import com.naptimegames.goquestwidget.SpectatorState.Status
 import com.naptimegames.goquestwidget.model.Board
 import com.naptimegames.goquestwidget.model.GameInfo
 import com.naptimegames.goquestwidget.model.Player
+import com.naptimegames.goquestwidget.model.WidgetSettings
 
 object WidgetUpdater {
-    // Boards drawn for the current position, by pixel size. Widgets of similar size share one,
-    // and status-only changes reuse it.
-    private var cachedPosition: String? = null
-    private val cachedBoards = HashMap<Int, Bitmap>()
+    // Recently drawn boards, keyed by position and pixel size: widgets showing the same game at a
+    // similar size share one, and status-only changes reuse it. Small, since each group only
+    // needs its latest position.
+    private val cachedBoards = object : LinkedHashMap<String, Bitmap>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?) = size > 8
+    }
 
-    fun idleState(ctx: Context) = SpectatorState(Status.STOPPED, Prefs.boardMode(ctx))
-
-    /** Redraws with the latest state, e.g. after a settings change. */
-    fun refresh(ctx: Context) = update(ctx, SpectatorService.latestState ?: idleState(ctx))
+    fun idleState(ctx: Context, widgetId: Int) = SpectatorState(Status.STOPPED, Prefs.widget(ctx, widgetId).mode)
 
     private const val GOQUEST_PACKAGE = "fm.wars.goquest"
 
-    fun update(ctx: Context, state: SpectatorState) {
-        val mgr = AppWidgetManager.getInstance(ctx)
-        val ids = mgr.getAppWidgetIds(ComponentName(ctx, GoWidgetProvider::class.java))
+    fun widgetIds(ctx: Context): IntArray =
+        AppWidgetManager.getInstance(ctx).getAppWidgetIds(ComponentName(ctx, GoWidgetProvider::class.java))
+
+    /** Redraws every widget with its latest state, e.g. after a settings change. */
+    fun refresh(ctx: Context) = refresh(ctx, widgetIds(ctx).toList())
+
+    fun refresh(ctx: Context, ids: Collection<Int>) {
+        for (id in ids) update(ctx, listOf(id), SpectatorService.stateFor(id) ?: idleState(ctx, id))
+    }
+
+    /** Shows [state] on the given widgets, each with its own size and opacity settings. */
+    fun update(ctx: Context, ids: Collection<Int>, state: SpectatorState) {
         if (ids.isEmpty()) return
+        val mgr = AppWidgetManager.getInstance(ctx)
         val density = ctx.resources.displayMetrics.density
         for (id in ids) {
             val o = mgr.getAppWidgetOptions(id)
@@ -46,15 +56,15 @@ object WidgetUpdater {
                 o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT),
                 density,
             )
-            mgr.updateAppWidget(id, build(ctx, state, px))
+            mgr.updateAppWidget(id, build(ctx, state, px, Prefs.widget(ctx, id)))
         }
     }
 
-    private fun build(ctx: Context, state: SpectatorState, boardPx: Int): RemoteViews {
+    private fun build(ctx: Context, state: SpectatorState, boardPx: Int, settings: WidgetSettings): RemoteViews {
         val views = RemoteViews(ctx.packageName, R.layout.widget_go)
         val game = state.game
-        views.setInt(R.id.background, "setImageAlpha", Prefs.backgroundOpacity(ctx) * 255 / 100)
-        views.setInt(R.id.board, "setImageAlpha", Prefs.boardOpacity(ctx) * 255 / 100)
+        views.setInt(R.id.background, "setImageAlpha", settings.backgroundOpacity * 255 / 100)
+        views.setInt(R.id.board, "setImageAlpha", settings.boardOpacity * 255 / 100)
         views.setImageViewBitmap(R.id.board, boardBitmap(state, boardPx))
 
         val live = game != null && state.status in setOf(Status.WATCHING, Status.FINISHED)
@@ -118,7 +128,7 @@ object WidgetUpdater {
     /** "Wins · Resign" on the winner's row; the reason alone on Black's row if the winner is unknown. */
     private fun resultNote(game: GameInfo, side: Side): String? {
         val reason = game.resultReason
-        return when (game.winnerIndex) {
+        return when (game.winner) {
             side.index -> listOfNotNull("Wins", reason).joinToString(" · ")
             null -> if (side == Side.BLACK) game.resultLabel else null
             else -> null
@@ -133,12 +143,8 @@ object WidgetUpdater {
     private fun boardBitmap(state: SpectatorState, px: Int): Bitmap {
         val game = state.game
         val size = game?.boardSize ?: state.mode.defaultBoardSize
-        val position = "${game?.id}:${game?.moves?.size}:$size"
-        if (position != cachedPosition) {
-            cachedBoards.clear()
-            cachedPosition = position
-        }
-        return cachedBoards.getOrPut(px) {
+        val key = "${game?.id}:${game?.moves?.size}:$size:$px"
+        return cachedBoards.getOrPut(key) {
             val board = game?.let { Board.fromMoves(it.boardSize, it.moves) }
             BoardRenderer.render(board, size, px)
         }

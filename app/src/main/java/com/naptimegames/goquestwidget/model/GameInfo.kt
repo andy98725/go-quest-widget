@@ -28,7 +28,7 @@ data class GameInfo(
     val statusMarkers: List<String>,
     val finished: Boolean,
     val remainingMs: List<Long>?,
-    /** 0 = Black won, 1 = White won, null = unknown (derived from rating changes in the result message). */
+    /** 0 = Black won, 1 = White won, null = unknown (from rating changes in the result message). */
     val winnerIndex: Int? = null,
 ) {
     val black: Player? get() = players.getOrNull(0)
@@ -47,18 +47,33 @@ data class GameInfo(
             val kind = marker.substringBefore(':').uppercase()
             val detail = marker.substringAfter(':', "")
             return when {
-                kind == "SCORE" && detail.isNotEmpty() -> "$detail pts"
+                // The score is signed from Black's side ("SCORE:-10" = White by 10); show the margin.
+                kind == "SCORE" && detail.isNotEmpty() -> "${detail.trimStart('-', '+')} pts"
                 detail.isEmpty() -> kind.lowercase().replaceFirstChar { it.uppercase() }.takeIf { it.isNotEmpty() }
                 else -> detail.lowercase().replaceFirstChar { it.uppercase() }
             }
         }
 
     /** Short human-readable result, e.g. "B+Resign", or null while the game is running. */
+    /** 0 = Black, 1 = White: from rating changes, else from the sign of a score result. */
+    val winner: Int?
+        get() {
+            winnerIndex?.let { return it }
+            val marker = statusMarkers.lastOrNull() ?: return null
+            if (!marker.uppercase().startsWith("SCORE:")) return null
+            val score = marker.substringAfter(':').toDoubleOrNull() ?: return null
+            return when {
+                score > 0 -> 0
+                score < 0 -> 1
+                else -> null
+            }
+        }
+
     val resultLabel: String?
         get() {
             if (!isOver) return null
             val reason = resultReason
-            val winner = when (winnerIndex) {
+            val winner = when (winner) {
                 0 -> "B"
                 1 -> "W"
                 else -> null

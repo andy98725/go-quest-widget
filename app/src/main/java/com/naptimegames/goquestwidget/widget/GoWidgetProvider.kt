@@ -10,15 +10,21 @@ import com.naptimegames.goquestwidget.SpectatorService
 class GoWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        val state = SpectatorService.latestState
-        WidgetUpdater.update(context, state ?: WidgetUpdater.idleState(context))
-        // Try to resume spectating (e.g. after the app was updated). Android may refuse from the
-        // background; the widget then shows "Tap to start".
-        if (state == null && Prefs.enabled(context)) SpectatorService.start(context)
+        WidgetUpdater.refresh(context, ids.toList())
+        // Make sure the service knows about these widgets; if it isn't running, try to resume
+        // (e.g. after an app update). Android may refuse from the background; the widget then
+        // shows "Tap to start".
+        if (SpectatorService.isRunning) SpectatorService.start(context, SpectatorService.ACTION_RELOAD)
+        else if (Prefs.enabled(context)) SpectatorService.start(context)
     }
 
     override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) {
-        WidgetUpdater.update(context, SpectatorService.latestState ?: WidgetUpdater.idleState(context))
+        WidgetUpdater.refresh(context, listOf(id))
+    }
+
+    override fun onDeleted(context: Context, ids: IntArray) {
+        ids.forEach { Prefs.deleteWidget(context, it) }
+        if (SpectatorService.isRunning) SpectatorService.start(context, SpectatorService.ACTION_RELOAD)
     }
 
     override fun onDisabled(context: Context) {

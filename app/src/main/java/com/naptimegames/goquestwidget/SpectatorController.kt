@@ -87,6 +87,7 @@ class SpectatorController(
         if (connected) {
             current?.let { send(Api.GAME_STOP, JSONObject().put("id", it.id)) }
             selection?.probing?.let { send(Api.GAME_STOP, JSONObject().put("id", it)) }
+            if (state.status == SpectatorState.Status.SEARCHING && selection == null) send(Api.LIVE_STOP, liveBody())
         }
         connected = false
         cancelTimers()

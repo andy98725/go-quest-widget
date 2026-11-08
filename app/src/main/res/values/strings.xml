@@ -30,4 +30,8 @@
     <string name="post_game_delay">Post-game delay (seconds)</string>
     <string name="post_game_delay_default">5</string>
     <string name="post_game_delay_range">Enter 0 to %1$d</string>
+    <string name="scope_widget">Settings for this widget</string>
+    <string name="scope_defaults">Defaults for new widgets. To change a widget, long-press it and choose Reconfigure.</string>
+    <string name="status_running">Spectating</string>
+    <string name="notification_many">Watching %1$d of %2$d games</string>
 </resources>
