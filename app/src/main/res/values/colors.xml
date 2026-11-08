@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget text. The stone bullets (● / ○) are picked from its lightness, see WidgetUpdater. -->
+    <color name="widget_text">#FFF3E9D2</color>
+</resources>

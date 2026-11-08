@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GoQuest Widget</string>
+    <string name="widget_description">Spectates the top GoQuest game live</string>
+    <string name="board_description">Go board of the game being spectated</string>
+    <string name="tap_to_start">Tap to start spectating</string>
+    <string name="save_widget">Save widget</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="protocol_log">Protocol log</string>
+    <string name="share_log">Share log</string>
+    <string name="log_empty">No traffic yet. Start spectating to see messages from the GoQuest server here.</string>
+    <string name="status_stopped">Not spectating</string>
+    <string name="channel_name">Spectating</string>
+    <string name="notification_title">Spectating GoQuest %1$s</string>
+    <string name="server">Game server</string>
+    <string name="server_hint">host:port (empty = default)</string>
+    <string name="save">Save</string>
+    <string name="board">Board</string>
+    <string name="top_n">Spectate top N games</string>
+    <string name="top_n_default">1</string>
+    <string name="top_n_hint">When a game ends, look at the top N live games and watch the one with the fewest moves. 1 = always the top game.</string>
+    <string name="background_opacity">Background opacity</string>
+    <string name="board_opacity">Board opacity</string>
+    <string name="percent">%1$d%%</string>
+    <string name="top_n_range">Enter 1 to %1$d</string>
+    <string name="show_advanced">Show advanced</string>
+    <string name="hide_advanced">Hide advanced</string>
+    <string name="version_label">Version %1$s</string>
+    <string name="post_game_delay">Post-game delay (seconds)</string>
+    <string name="post_game_delay_default">5</string>
+    <string name="post_game_delay_range">Enter 0 to %1$d</string>
+</resources>
