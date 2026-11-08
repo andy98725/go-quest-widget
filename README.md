@@ -47,7 +47,7 @@ protocol log with a Share button for troubleshooting.
 
 ## Install
 
-Download the APK from the releases page and open it on your phone (allow installing from your
+Download the APK from the [latest release](https://github.com/andy98725/go-quest-widget/releases/latest) and open it on your phone (allow installing from your
 browser or file manager when asked). Then long-press the home screen → Widgets →
 **GoQuest Widget**.
 
@@ -121,4 +121,3 @@ issue or get in touch.
 12. **Name and package:** the app name ("GoQuest Widget") and package
     (`com.naptimegames.goquestwidget`) may need changing, depending on MindWalk's preference.
 13. **Licensing:** decide after talking to MindWalk (open source, exclusive, or transfer).
-14. **Release:** publish a GitHub release with the APK attached; *Install* above points to it.
