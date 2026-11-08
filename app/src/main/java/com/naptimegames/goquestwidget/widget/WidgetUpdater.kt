@@ -161,7 +161,7 @@ object WidgetUpdater {
     private fun statusText(state: SpectatorState): String = when (state.status) {
         Status.STOPPED -> "Tap to start spectating ${state.mode.label}"
         Status.CONNECTING -> "Connecting…"
-        Status.SEARCHING -> state.message ?: "Finding a ${state.mode.label} game…"
+        Status.SEARCHING -> state.message ?: "Finding the next ${state.mode.label} game…"
         Status.OFFLINE -> state.message ?: "Offline"
         Status.WATCHING, Status.FINISHED -> ""
     }
