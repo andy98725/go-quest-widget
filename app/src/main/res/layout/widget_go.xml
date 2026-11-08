@@ -24,6 +24,7 @@
             android:id="@+id/black_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:minHeight="@dimen/widget_row_height"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -68,6 +69,7 @@
             android:id="@+id/white_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:minHeight="@dimen/widget_row_height"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 

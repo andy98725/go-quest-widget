@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fixed player-row height (fits the 13sp clock), so the board never shifts when a row's
+         clock or text comes and goes. -->
+    <dimen name="widget_row_height">20dp</dimen>
+</resources>

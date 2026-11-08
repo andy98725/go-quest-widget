@@ -217,7 +217,7 @@ class SpectatorController(
         pending?.cancel()
         watchdog?.cancel()
         selection = null
-        publish(SpectatorState(SpectatorState.Status.SEARCHING, mode, state.game, "Finding the top ${mode.label} game…"))
+        publish(SpectatorState(SpectatorState.Status.SEARCHING, mode, state.game, "Finding a ${mode.label} game…"))
         send(Api.LIVE, liveBody())
         // The list is a subscription, but ask again if nothing usable arrives.
         pending = scheduler.schedule(RETRY_LIST_MS) {

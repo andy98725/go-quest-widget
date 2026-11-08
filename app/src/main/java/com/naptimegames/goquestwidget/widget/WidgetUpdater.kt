@@ -73,11 +73,12 @@ object WidgetUpdater {
             showPlayer(ctx, views, Side.WHITE, game.white, game, state.status)
             views.setViewVisibility(R.id.white_row, View.VISIBLE)
         } else {
-            // No game to show: Black's row carries the status, White's row is hidden.
+            // No game to show: Black's row carries the status. White's row stays in the layout
+            // (invisible) so the board keeps its size and position.
             views.setTextViewText(R.id.black_info, statusText(state))
             views.setViewVisibility(R.id.black_note, View.GONE)
             views.setViewVisibility(R.id.black_clock, View.GONE)
-            views.setViewVisibility(R.id.white_row, View.GONE)
+            views.setViewVisibility(R.id.white_row, View.INVISIBLE)
         }
 
         // GoQuest has no known link to a specific game, so open the app itself.
@@ -160,7 +161,7 @@ object WidgetUpdater {
     private fun statusText(state: SpectatorState): String = when (state.status) {
         Status.STOPPED -> "Tap to start spectating ${state.mode.label}"
         Status.CONNECTING -> "Connecting…"
-        Status.SEARCHING -> state.message ?: "Finding the top ${state.mode.label} game…"
+        Status.SEARCHING -> state.message ?: "Finding a ${state.mode.label} game…"
         Status.OFFLINE -> state.message ?: "Offline"
         Status.WATCHING, Status.FINISHED -> ""
     }
