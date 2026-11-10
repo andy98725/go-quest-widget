@@ -64,18 +64,29 @@ object GameParser {
     }
 
     /** One row of the live list, already in the server's order (strongest game first). */
-    data class LiveGame(val id: String, val moveCount: Int, val black: Player, val white: Player)
+    data class LiveGame(
+        val id: String,
+        val moveCount: Int,
+        val black: Player,
+        val white: Player,
+        /** The game's own type: "go19" for a 19x19 game in the go13 list, else the list's type. */
+        val gtype: String,
+    ) {
+        val boardSize: Int get() = gtype.filter { it.isDigit() }.toIntOrNull() ?: 9
+    }
 
     /**
      * Parses the live list's "games" array. Each entry is a '/'-separated row:
-     * `id/moves/?/?/?/<black: name/?/dan/rating/?/avatar>/<white: same 6 fields>`.
+     * `id/moves/<gtype if it differs from the list's>/?/?/<black: name/?/dan/rating/?/avatar>/<white: same 6 fields>`.
+     * The third field reads "go19" for 19x19 games mixed into the go13 list.
      */
     fun parseLiveList(body: JSONObject): List<LiveGame> {
         val arr = body.optJSONArray("games") ?: return emptyList()
-        return (0 until arr.length()).mapNotNull { i -> parseLiveRow(arr.optString(i)) }
+        val listGtype = body.optString("gtype")
+        return (0 until arr.length()).mapNotNull { i -> parseLiveRow(arr.optString(i), listGtype) }
     }
 
-    fun parseLiveRow(row: String): LiveGame? {
+    fun parseLiveRow(row: String, listGtype: String = ""): LiveGame? {
         val f = row.split('/')
         if (f.size < 15 || f[0].isEmpty()) return null
         fun player(at: Int) = Player(
@@ -84,7 +95,7 @@ object GameParser {
             dan = f[at + 2].toIntOrNull(),
             rating = f[at + 3].toDoubleOrNull(),
         )
-        return LiveGame(f[0], f[1].toIntOrNull() ?: 0, player(5), player(11))
+        return LiveGame(f[0], f[1].toIntOrNull() ?: 0, player(5), player(11), f[2].ifEmpty { listGtype })
     }
 
     private fun JSONObject.optIntOrNull(key: String): Int? =

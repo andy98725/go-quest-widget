@@ -38,11 +38,13 @@ class SpectatorControllerTest {
         due.forEach { it.second() }
     }
 
-    /** A live-list row; "id:moves" sets the move count (default 10). */
+    /** A live-list row; "id:moves" sets the move count (default 10), "id:moves:go19" marks a 19x19 game. */
     private fun row(spec: String): String {
-        val id = spec.substringBefore(':')
-        val moves = spec.substringAfter(':', "10")
-        return "$id/$moves////b_$id//3/2000/0//w_$id//2/1900/0/"
+        val parts = spec.split(':')
+        val id = parts[0]
+        val moves = parts.getOrElse(1) { "10" }
+        val type = parts.getOrElse(2) { "" }
+        return "$id/$moves/$type///b_$id//3/2000/0//w_$id//2/1900/0/"
     }
     private fun live(gtype: String, vararg ids: String) =
         JSONObject().put("gtype", gtype).put("page", 0).put("games", JSONArray().apply { ids.forEach { put(row(it)) } })
@@ -161,22 +163,24 @@ class SpectatorControllerTest {
     }
 
     @Test
-    fun sizeFilterProbesGamesAndSkipsOtherSizes() {
+    fun nineteenFilterUsesRowType() {
         val c = controller(BoardMode.NINETEEN, topN = 1)
         c.onReady()
-        c.onMessage(Api.LIVE, live("go13", "t1", "big", "t2"))
-        // Unknown size: open the first game to look.
-        assertEquals(Api.GAME to "t1", sent.last().first to sent.last().second.getString("id"))
-        c.onMessage(Api.GAME, state("t1", listOf("B[dd]"), size = 13))
-        assertEquals(Api.GAME_STOP, sent[sent.size - 2].first)
-        assertEquals("big", sent.last().second.getString("id"))
-        c.onMessage(Api.GAME, state("big", listOf("B[pd]", "W[dp]"), size = 19))
-        // Found one 19x19 game; that's topN, so watch it with the state already known.
-        assertEquals(Status.WATCHING, c.state.status)
-        assertEquals("big", c.state.game?.id)
+        c.onMessage(Api.LIVE, live("go13", "t1:10", "big:107:go19", "t2:5"))
+        // Picked straight from the list: no game opened just to check its size.
+        assertEquals(listOf("big"), sent.filter { it.first == Api.GAME }.map { it.second.getString("id") })
         assertEquals(19, c.state.game?.boardSize)
-        assertEquals(2, c.state.game?.moveCount)
-        assertEquals("big", lastWatched())
+        assertEquals("go19", c.state.game?.gtype)
+    }
+
+    @Test
+    fun thirteenFilterSkipsNineteen() {
+        val c = controller(BoardMode.THIRTEEN, topN = 2)
+        c.onReady()
+        // Top 2 13x13 games are t1 and t2 (big is 19x19); t2 has fewer moves.
+        c.onMessage(Api.LIVE, live("go13", "t1:30", "big:2:go19", "t2:12", "t3:1"))
+        assertEquals("t2", lastWatched())
+        assertEquals(13, c.state.game?.boardSize)
     }
 
     @Test
@@ -184,47 +188,16 @@ class SpectatorControllerTest {
         val c = controller(BoardMode.NINETEEN, topN = 2)
         c.onReady()
         c.onMessage(Api.LIVE, live("go13", "a:30", "b:12", "c:2"))
-        c.onMessage(Api.GAME, state("a", listOf("B[dd]", "W[jj]", "B[dj]"), size = 13))
-        c.onMessage(Api.GAME, state("b", listOf("B[dd]"), size = 13))
-        c.onMessage(Api.GAME, state("c", emptyList(), size = 13))
         // No 19x19 at all: pick from the unfiltered top 2 by fewest moves ("c" isn't in the top 2).
         assertEquals(Status.WATCHING, c.state.status)
         assertEquals("b", c.state.game?.id)
     }
 
     @Test
-    fun knownSizesAreNotProbedAgain() {
-        val c = controller(BoardMode.THIRTEEN)
-        c.onReady()
-        c.onMessage(Api.LIVE, live("go13", "big", "small"))
-        c.onMessage(Api.GAME, state("big", emptyList(), size = 19))
-        c.onMessage(Api.GAME, state("small", listOf("B[dd]"), size = 13))
-        assertEquals("small", c.state.game?.id)
-        c.onMessage(Api.GAME_RESULT, state("small", listOf("B[dd]"), "LOSE:RESIGN", size = 13))
-        fire(SpectatorController.DEFAULT_SWITCH_DELAY_MS)
-
-        sent.clear()
-        c.onMessage(Api.LIVE, live("go13", "big", "new"))
-        // "big" is known to be 19x19, so only "new" is opened.
-        assertEquals(listOf("new"), sent.filter { it.first == Api.GAME }.map { it.second.getString("id") })
-    }
-
-    @Test
-    fun unansweredProbeIsSkipped() {
-        val c = controller(BoardMode.THIRTEEN)
-        c.onReady()
-        c.onMessage(Api.LIVE, live("go13", "silent", "ok"))
-        fire(SpectatorController.PROBE_TIMEOUT_MS)
-        assertEquals("ok", sent.last().second.getString("id"))
-        c.onMessage(Api.GAME, state("ok", emptyList(), size = 13))
-        assertEquals("ok", c.state.game?.id)
-    }
-
-    @Test
-    fun unfilteredModesNeverProbe() {
+    fun mixedModeTakesAnySize() {
         val c = controller(BoardMode.THIRTEEN_AND_NINETEEN, topN = 3)
         c.onReady()
-        c.onMessage(Api.LIVE, live("go13", "a:9", "b:4", "c:6"))
+        c.onMessage(Api.LIVE, live("go13", "a:9", "b:4:go19", "c:6"))
         assertEquals(1, sent.count { it.first == Api.GAME })
         assertEquals("b", lastWatched())
     }

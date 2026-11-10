@@ -42,8 +42,9 @@ suggests moves or stores player data.
 - **Tap the board** to open the GoQuest app.
 
 - **Per-widget settings:** each widget has its own board, top N, post-game delay and
-  opacity, so you can keep a 9×9 and a 13×13 widget side by side. All widgets share one
-  connection. Widgets with the same board, top N and delay show the same game.
+  opacity, so you can keep a 9×9 and a 13×13 widget side by side. Widgets with the same board,
+  top N and delay share one game and one connection. Each other setup opens its own
+  connection, because the server sends moves for only one game per connection.
 
 Settings open when you add a widget, and later via long-press → Reconfigure (Android 12+). The
 app itself sets the defaults for new widgets. Under *Show advanced* are the server address,
@@ -75,8 +76,7 @@ against a synthetic server transcript, not recorded games.
 |---|---|
 | `protocol/` | Message framing, parsing, TCP client |
 | `SpectatorController.kt` | Picks a game (top N, size filter, fewest moves), follows it, switches after it ends. No Android dependencies; unit-tested |
-| `SpectatorService.kt` | Foreground service that owns the connection, runs one game picker per distinct widget setup, and updates widgets |
-| `SubscriptionHub.kt` | Shares the connection between pickers: stops watching a game or list only when no widget needs it |
+| `SpectatorService.kt` | Foreground service: one connection and game picker per distinct widget setup; updates widgets |
 | `model/` | Go board with captures, game info, board modes |
 | `widget/` | Widget provider, layout updates, board renderer |
 | `ui/SettingsActivity.kt` | Settings and widget configuration screen |
@@ -94,28 +94,29 @@ issue or get in touch.
 1. **Client registration.** The server answers the widget's handshake with
    `{"error":"Unknown vendor_id"}`. Spectating still works, but what is the right way for an
    integration to identify itself?
-2. **Board size in the live list.** 19×19 games are mixed into the 13×13 list, and list rows
-   don't say a game's size. To filter, the widget briefly opens each unknown game to read its
-   size, which adds to that game's spectator count for a moment. A size field in the list would
-   remove that.
+2. **One game per connection.** The server sends moves only for the most recently watched game
+   on a connection (the watch reply carries a single `"watch_id"`). The widget therefore opens
+   one connection per distinct widget setup. Could one connection watch several games?
+   *(This replaces the earlier question about board size in the live list: answered, see 9.)*
 3. **Server address.** The widget connects to a fixed server address taken from the app's
    traffic. Is there a stable hostname or a lookup endpoint it should use?
 4. **Opening a specific game.** Tapping the board opens the GoQuest app, not the game being
    shown. Is there a deep link to a game?
 5. **Acceptable use.** Is spectating like this within the terms of service? What request rates or
    connection patterns would they prefer (for example, how often to re-request the live list)?
-
 6. **Status messages.** The server pushes a lobby status message about every 5 s, which a
    widget doesn't need. It keeps the phone's radio awake while the screen is on. Could
    spectating clients opt out?
 
 ### Not yet verified
 
-7. **19×19 filter:** never tested live, because no 19×19 game appeared during testing.
+7. **19×19 filter:** now reads the `go19` marker in the 13×13 list. 19×19 games have appeared
+   in the list, but the widget hasn't been seen showing one yet.
 8. **Clocks at zero:** the widget's countdown probably goes negative. How GoQuest handles
    running out of time (the meaning of `tcb`/`tci`, any byo-yomi) is unknown.
 9. **Unknown list fields:** some fields in live-list rows are always empty or `0` so far, and
-   their meaning is unknown.
+   their meaning is unknown. The third field is the game's type when it differs from the list's
+   (`go19` for 19×19 games in the 13×13 list), which the widget now uses to filter by size.
 10. **Keep-alive:** the widget sends an empty line every 60 s, copying the official app. It's
    unconfirmed whether the server needs it.
 

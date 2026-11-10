@@ -21,12 +21,13 @@ data class SpectatorState(
  * Spectating logic, kept free of Android so it can be unit-tested.
  *
  * Picking a game: take the live list (the server sorts it strongest first), keep games of the
- * selected size, and from the first [topN] of those watch the one with the fewest moves, so a
- * fresh game is preferred over one about to end. If no game matches the size filter, use the
- * unfiltered list instead. [switchDelayMs] after the watched game ends, pick again.
+ * selected size (list rows say "go19" for 19x19 games in the go13 list), and from the first
+ * [topN] of those watch the one with the fewest moves, so a fresh game is preferred over one
+ * about to end. If no game matches the size filter, use the unfiltered list instead.
+ * [switchDelayMs] after the watched game ends, pick again.
  *
- * The live list doesn't say a game's board size, so with a size filter, games of unknown size
- * are opened briefly (`game` then `game_stop`) to read it. Sizes are cached by game id.
+ * The server sends moves for only one watched game per connection, so each controller needs
+ * a connection of its own.
  */
 class SpectatorController(
     val mode: BoardMode,
@@ -55,18 +56,9 @@ class SpectatorController(
     private var connected = false
     private var current: GameInfo? = null
     private val recentlyFinished = ArrayDeque<String>()
-    private val sizeById = LinkedHashMap<String, Int>()
-    private var selection: Selection? = null
     private var pending: Cancellable? = null
     private var watchdog: Cancellable? = null
 
-    private class Selection(val rows: List<LiveGame>) {
-        var index = 0
-        val matches = mutableListOf<LiveGame>()
-        val probed = HashMap<String, GameInfo>()
-        var probing: String? = null
-        var timeout: Cancellable? = null
-    }
 
     fun onConnecting() = publish(state.copy(status = SpectatorState.Status.CONNECTING, message = null))
 
@@ -86,8 +78,7 @@ class SpectatorController(
     fun stop() {
         if (connected) {
             current?.let { send(Api.GAME_STOP, JSONObject().put("id", it.id)) }
-            selection?.probing?.let { send(Api.GAME_STOP, JSONObject().put("id", it)) }
-            if (state.status == SpectatorState.Status.SEARCHING && selection == null) send(Api.LIVE_STOP, liveBody())
+            if (state.status == SpectatorState.Status.SEARCHING) send(Api.LIVE_STOP, liveBody())
         }
         connected = false
         cancelTimers()
@@ -104,71 +95,28 @@ class SpectatorController(
         }
     }
 
-    private fun onGame(game: GameInfo) {
-        val sel = selection
-        if (sel != null && sel.probing == game.id) onProbeResult(sel, game.id, game) else onGameState(game)
-    }
+    private fun onGame(game: GameInfo) = onGameState(game)
 
     // ---- Picking a game ----
 
     private fun onLiveList(body: JSONObject) {
-        if (state.status != SpectatorState.Status.SEARCHING || selection != null) return
+        if (state.status != SpectatorState.Status.SEARCHING) return
         if (body.optString("gtype", gtype) != gtype) return
         val rows = GameParser.parseLiveList(body).filter { it.id !in recentlyFinished }
         if (rows.isEmpty()) return
         pending?.cancel()
         send(Api.LIVE_STOP, liveBody())
-        selection = Selection(rows)
-        advance()
-    }
-
-    private fun advance() {
-        val sel = selection ?: return
         val filter = mode.sizeFilter
-        while (sel.index < sel.rows.size && sel.matches.size < topN) {
-            val row = sel.rows[sel.index]
-            if (filter == null) {
-                sel.matches += row
-            } else {
-                val size = sizeById[row.id] ?: return probe(sel, row)
-                val over = sel.probed[row.id]?.isOver == true
-                if (size == filter && !over) sel.matches += row
-            }
-            sel.index++
-        }
-        finishSelection(sel)
-    }
-
-    private fun probe(sel: Selection, row: LiveGame) {
-        sel.probing = row.id
-        send(Api.GAME, JSONObject().put("id", row.id))
-        sel.timeout = scheduler.schedule(PROBE_TIMEOUT_MS) { onProbeResult(sel, row.id, null) }
-    }
-
-    private fun onProbeResult(sel: Selection, id: String, game: GameInfo?) {
-        if (selection !== sel || sel.probing != id) return
-        sel.timeout?.cancel()
-        sel.probing = null
-        send(Api.GAME_STOP, JSONObject().put("id", id))
-        if (game != null) {
-            sel.probed[id] = game
-            rememberSize(id, game.boardSize)
-        } else {
-            sel.index++ // no answer: skip this game
-        }
-        advance()
-    }
-
-    private fun finishSelection(sel: Selection) {
-        selection = null
-        val pool = sel.matches.ifEmpty { sel.rows.take(topN) }
+        val matching = if (filter == null) rows else rows.filter { it.boardSize == filter }
+        // No game of the chosen size: use the whole list.
+        val pool = matching.ifEmpty { rows }.take(topN)
         // Fewest moves = the earliest game; ties keep the server's (strength) order.
-        val pick = pool.minByOrNull { sel.probed[it.id]?.moveCount ?: it.moveCount } ?: return search()
-        watch(sel.probed[pick.id] ?: preview(pick))
+        val pick = pool.minByOrNull { it.moveCount } ?: return search()
+        watch(preview(pick))
     }
 
     private fun preview(row: LiveGame) = GameInfo(
-        id = row.id, gtype = gtype, boardSize = sizeById[row.id] ?: mode.defaultBoardSize,
+        id = row.id, gtype = row.gtype.ifEmpty { gtype }, boardSize = row.boardSize,
         players = listOf(row.black, row.white), moves = emptyList(), statusMarkers = emptyList(),
         finished = false, remainingMs = null,
     )
@@ -178,7 +126,6 @@ class SpectatorController(
     private fun onGameState(game: GameInfo) {
         val watching = current ?: return
         if (game.id != watching.id) return
-        rememberSize(game.id, game.boardSize)
         // The result message has no clock data; keep the last known clocks.
         val merged = game.copy(remainingMs = game.remainingMs ?: watching.remainingMs)
         current = merged
@@ -216,12 +163,11 @@ class SpectatorController(
         if (!connected) return
         pending?.cancel()
         watchdog?.cancel()
-        selection = null
         publish(SpectatorState(SpectatorState.Status.SEARCHING, mode, state.game, "Finding the next ${mode.label} game…"))
         send(Api.LIVE, liveBody())
         // The list is a subscription, but ask again if nothing usable arrives.
         pending = scheduler.schedule(RETRY_LIST_MS) {
-            if (state.status == SpectatorState.Status.SEARCHING && selection == null) search()
+            if (state.status == SpectatorState.Status.SEARCHING) search()
         }
     }
 
@@ -243,18 +189,11 @@ class SpectatorController(
         while (recentlyFinished.size > 50) recentlyFinished.removeFirst()
     }
 
-    private fun rememberSize(id: String, size: Int) {
-        sizeById[id] = size
-        while (sizeById.size > 300) sizeById.remove(sizeById.keys.first())
-    }
-
     private fun liveBody() = JSONObject().put("gtype", gtype).put("page", 0)
 
     private fun cancelTimers() {
         pending?.cancel(); pending = null
         watchdog?.cancel(); watchdog = null
-        selection?.timeout?.cancel()
-        selection = null
     }
 
     private fun publish(s: SpectatorState) {
@@ -266,6 +205,5 @@ class SpectatorController(
         const val DEFAULT_SWITCH_DELAY_MS = 5_000L
         const val RETRY_LIST_MS = 15_000L
         const val STALE_GAME_MS = 5 * 60_000L
-        const val PROBE_TIMEOUT_MS = 4_000L
     }
 }

@@ -65,6 +65,17 @@ class ProtocolTest {
     }
 
     @Test
+    fun liveRowGameType() {
+        // Real row shape: 19x19 games in the go13 list carry "go19" in the third field.
+        val big = GameParser.parseLiveRow("tub610vwwqmq/107/go19///p1//0/1663/0//p2//6/2391/0/s_n06", "go13")!!
+        assertEquals("go19", big.gtype)
+        assertEquals(19, big.boardSize)
+        val small = GameParser.parseLiveRow("k9f2pnyzsqq8/41////p3//5/2183/0//p4//2/1864/0/", "go13")!!
+        assertEquals("go13", small.gtype)
+        assertEquals(13, small.boardSize)
+    }
+
+    @Test
     fun parsesGameAndResult() {
         val state = transcript.first { it.name == Api.GAME.fallbackId && it.body.getString("id") == "gq9topgame01" }
         val game = GameParser.parseGame(state.body)!!
