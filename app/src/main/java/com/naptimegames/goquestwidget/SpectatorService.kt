@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -88,7 +90,7 @@ class SpectatorService : Service() {
                 override fun onMessage(name: String, body: JSONObject) = onMain {
                     api.lookup(name)?.let { controller.onMessage(it, body) }
                 }
-                override fun onClosed(reason: String) = onMain { onLost(reason) }
+                override fun onClosed(reason: String, detail: String?) = onMain { onLost(reason, detail) }
                 override fun onLine(outgoing: Boolean, text: String) =
                     ProtocolLog.add(if (outgoing) ">>" else "<<", if (sessions.size > 1) "[$tag] $text" else text)
             })
@@ -96,15 +98,26 @@ class SpectatorService : Service() {
             c.connect()
         }
 
-        private fun onLost(reason: String) {
-            ProtocolLog.add("!!", "[$tag] $reason")
+        private fun onLost(reason: String, detail: String?) {
+            ProtocolLog.add("!!", "[$tag] $reason" + (detail?.let { " ($it)" } ?: ""))
             client = null
             main.removeCallbacks(keepAlive)
-            controller.onDisconnected("$reason — retrying in ${reconnectDelayMs / 1000}s")
+            if (!hasNetwork()) {
+                // Nothing to retry on; the network callback reconnects as soon as one is back.
+                controller.onDisconnected("No network — waiting")
+                return
+            }
+            controller.onDisconnected("$reason — reconnecting")
             if (isScreenOn()) {
                 main.postDelayed(reconnect, reconnectDelayMs)
                 reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_MS)
             }
+        }
+
+        /** Reconnects straight away with a fresh backoff, e.g. when a network appears. */
+        fun reconnectNow() {
+            reconnectDelayMs = MIN_RECONNECT_MS
+            connect()
         }
 
         fun disconnect(reason: String? = null) {
@@ -137,7 +150,32 @@ class SpectatorService : Service() {
             addAction(Intent.ACTION_SCREEN_OFF)
         })
         screenReceiverRegistered = true
+        getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
     }
+
+    /**
+     * Follows the phone's default network. When it changes (Wi-Fi ↔ mobile data), existing
+     * connections are on the old network and will die, so move them now instead of waiting
+     * for the error. When a network comes back, reconnect anything that was waiting.
+     */
+    private var network: Network? = null
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(n: Network) = main.post { onNetwork(n) }.let { }
+        override fun onLost(n: Network) = main.post { if (network == n) network = null }.let { }
+    }
+
+    private fun onNetwork(n: Network) {
+        val previous = network
+        network = n
+        if (destroyed || !isScreenOn()) return
+        val toMove = if (previous != null && previous != n) sessions.values.toList() else sessions.values.filter { !it.connected }
+        if (toMove.isEmpty()) return
+        ProtocolLog.add("--", if (previous != null && previous != n) "Network changed, reconnecting" else "Network available, reconnecting")
+        toMove.forEach { it.reconnectNow() }
+    }
+
+    private fun hasNetwork(): Boolean =
+        getSystemService(ConnectivityManager::class.java).activeNetwork != null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         goForeground()
@@ -166,6 +204,7 @@ class SpectatorService : Service() {
         sessions.clear()
         main.removeCallbacksAndMessages(null)
         if (screenReceiverRegistered) unregisterReceiver(screenReceiver)
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
         states.clear()
         super.onDestroy()
     }

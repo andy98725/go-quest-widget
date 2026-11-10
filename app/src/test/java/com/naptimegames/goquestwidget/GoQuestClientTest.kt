@@ -40,7 +40,7 @@ class GoQuestClientTest {
                     clientRef!!.send(api.id(Protocol.Api.LIVE), JSONObject().put("gtype", "go9").put("page", 0))
                 }
                 override fun onMessage(name: String, body: JSONObject) { names += name }
-                override fun onClosed(reason: String) = closed.countDown()
+                override fun onClosed(reason: String, detail: String?) = closed.countDown()
             })
         clientRef = client
         client.connect()

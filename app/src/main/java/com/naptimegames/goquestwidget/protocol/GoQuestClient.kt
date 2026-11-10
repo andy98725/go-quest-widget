@@ -27,7 +27,8 @@ class GoQuestClient(
          */
         fun onReady(api: Protocol.ApiTable, error: String?)
         fun onMessage(name: String, body: JSONObject)
-        fun onClosed(reason: String)
+        /** [reason] is short and readable for the widget; [detail] is the raw error for the log. */
+        fun onClosed(reason: String, detail: String?)
         fun onLine(outgoing: Boolean, text: String) {}
     }
 
@@ -68,11 +69,9 @@ class GoQuestClient(
                     listener.onMessage(msg.name, msg.body)
                 }
             }
-            closed("Server closed the connection")
-        } catch (e: SocketTimeoutException) {
-            closed("Server stopped responding")
+            closed("Server closed the connection", null)
         } catch (e: Exception) {
-            closed(e.message ?: e.javaClass.simpleName)
+            closed(describe(e), "${e.javaClass.simpleName}: ${e.message}")
         } finally {
             runCatching { socket?.close() }
         }
@@ -102,11 +101,25 @@ class GoQuestClient(
         runCatching { socket?.close() }
     }
 
-    private fun closed(reason: String) {
-        if (!closedByUs.get() && closeReported.compareAndSet(false, true)) listener.onClosed(reason)
+    private fun closed(reason: String, detail: String?) {
+        if (!closedByUs.get() && closeReported.compareAndSet(false, true)) listener.onClosed(reason, detail)
     }
 
     companion object {
+        /** Turns socket errors into short messages for the widget. */
+        fun describe(e: Throwable): String {
+            val msg = e.message.orEmpty().lowercase()
+            return when {
+                e is SocketTimeoutException -> "Server stopped responding"
+                e is java.net.UnknownHostException -> "No network"
+                e is java.net.ConnectException || "unreachable" in msg -> "Can't reach the server"
+                // ECONNABORTED: Android dropped the socket, usually on a network change.
+                "connection abort" in msg -> "Network changed"
+                "reset" in msg || "broken pipe" in msg -> "Connection dropped"
+                else -> "Connection lost"
+            }
+        }
+
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 45_000
     }
