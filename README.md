@@ -32,9 +32,11 @@ suggests moves or stores player data.
 - **Spectate top N games** (default 1): when picking the next game, take the top N and watch
   the one with the fewest moves, so a game that just started wins over one about to end.
 - **Players and clocks:** Black's name, rank and rating above the board and White's below,
-  marked with ●/○ bullets chosen to match the text colour. Each player's remaining time is on the
-  right, and the side to move counts down live. The result ("Wins · Resign", "Wins · 4 pts")
-  shows on the winner's row, or "Draw" on both.
+  marked with ●/○ bullets chosen to match the text colour. On the right of each row are that
+  player's captures (the captured stones' bullet and a count, e.g. `●3`) and remaining time.
+  Clocks read `4:59`, or `04:59` while either player has 10 minutes or more. The side to move
+  counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
+  "Draw" on both.
 - **Looks:** background and board opacity sliders.
 - **Battery-friendly:** the connection pauses once the screen has been off for 30 s and
   resumes when it's back on. While spectating, Android shows a silent notification with a Stop

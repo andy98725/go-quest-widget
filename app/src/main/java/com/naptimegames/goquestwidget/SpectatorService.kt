@@ -17,6 +17,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
+import com.naptimegames.goquestwidget.model.GameClock
 import com.naptimegames.goquestwidget.model.WidgetSettings
 import com.naptimegames.goquestwidget.protocol.GoQuestClient
 import com.naptimegames.goquestwidget.protocol.Protocol
@@ -123,6 +125,7 @@ class SpectatorService : Service() {
         fun disconnect(reason: String? = null) {
             main.removeCallbacks(reconnect)
             main.removeCallbacks(keepAlive)
+            main.removeCallbacks(tick)
             client?.close()
             client = null
             if (reason != null) controller.onDisconnected(reason)
@@ -134,10 +137,40 @@ class SpectatorService : Service() {
             disconnect()
         }
 
+        private var clockKey: Any? = null
+        private var clockAt = 0L
+        private var last: SpectatorState? = null
+
+        /** Ticks the clock text once a second while a game is on, without redrawing the board. */
+        private val tick = object : Runnable {
+            override fun run() {
+                val s = last ?: return
+                val next = WidgetUpdater.tickClocks(this@SpectatorService, widgetIds, s) ?: return
+                main.postDelayed(this, next + TICK_SLACK_MS)
+            }
+        }
+
         fun show(state: SpectatorState) {
-            for (id in widgetIds) states[id] = state
-            WidgetUpdater.update(this@SpectatorService, widgetIds, state)
+            // A new clock reading (new move or time update) restarts the local countdown.
+            val key = state.game?.let { Triple(it.id, it.moveCount, it.remainingMs) }
+            if (key != clockKey) {
+                clockKey = key
+                clockAt = SystemClock.elapsedRealtime()
+            }
+            val stamped = state.copy(clockAtMs = clockAt)
+            last = stamped
+            for (id in widgetIds) states[id] = stamped
+            WidgetUpdater.update(this@SpectatorService, widgetIds, stamped)
+            scheduleTick(stamped)
             if (!destroyed) notifyStatus()
+        }
+
+        private fun scheduleTick(s: SpectatorState) {
+            main.removeCallbacks(tick)
+            val game = s.game ?: return
+            if (s.status != SpectatorState.Status.WATCHING) return
+            val running = GameClock.remaining(game, game.toMove, true, s.clockAtMs, SystemClock.elapsedRealtime()) ?: return
+            if (running > 0) main.postDelayed(tick, GameClock.msUntilNextTick(running) + TICK_SLACK_MS)
         }
     }
 
@@ -341,6 +374,8 @@ class SpectatorService : Service() {
         private const val MAX_RECONNECT_MS = 60_000L
         private const val KEEPALIVE_MS = 60_000L
         private const val SCREEN_OFF_GRACE_MS = 30_000L
+        /** Fire just after the displayed second changes, never just before. */
+        private const val TICK_SLACK_MS = 20L
 
         /** The latest state shown on each widget, by widget id; empty when not running. */
         private val states = ConcurrentHashMap<Int, SpectatorState>()

@@ -44,7 +44,15 @@
                 android:layout_marginStart="6dp"
                 android:visibility="gone" />
 
-            <Chronometer
+            <TextView
+                android:id="@+id/black_captures"
+                style="@style/WidgetText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/black_clock"
                 style="@style/WidgetText.Clock"
                 android:layout_width="wrap_content"
@@ -88,7 +96,15 @@
                 android:layout_marginStart="6dp"
                 android:visibility="gone" />
 
-            <Chronometer
+            <TextView
+                android:id="@+id/white_captures"
+                style="@style/WidgetText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:visibility="gone" />
+
+            <TextView
                 android:id="@+id/white_clock"
                 style="@style/WidgetText.Clock"
                 android:layout_width="wrap_content"

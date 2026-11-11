@@ -13,6 +13,8 @@ data class SpectatorState(
     val mode: BoardMode,
     val game: GameInfo? = null,
     val message: String? = null,
+    /** When [game]'s clock snapshot arrived (SystemClock.elapsedRealtime); set by the service. */
+    val clockAtMs: Long = 0,
 ) {
     enum class Status { STOPPED, CONNECTING, SEARCHING, WATCHING, FINISHED, OFFLINE }
 }

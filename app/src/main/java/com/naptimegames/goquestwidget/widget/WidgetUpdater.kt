@@ -16,6 +16,7 @@ import com.naptimegames.goquestwidget.SpectatorService
 import com.naptimegames.goquestwidget.SpectatorState
 import com.naptimegames.goquestwidget.SpectatorState.Status
 import com.naptimegames.goquestwidget.model.Board
+import com.naptimegames.goquestwidget.model.GameClock
 import com.naptimegames.goquestwidget.model.GameInfo
 import com.naptimegames.goquestwidget.model.Player
 import com.naptimegames.goquestwidget.model.WidgetSettings
@@ -69,14 +70,16 @@ object WidgetUpdater {
 
         val live = game != null && state.status in setOf(Status.WATCHING, Status.FINISHED)
         if (live && game != null) {
-            showPlayer(ctx, views, Side.BLACK, game.black, game, state.status)
-            showPlayer(ctx, views, Side.WHITE, game.white, game, state.status)
+            val board = Board.fromMoves(game.boardSize, game.moves)
+            showPlayer(ctx, views, Side.BLACK, game.black, state, board.capturedByBlack)
+            showPlayer(ctx, views, Side.WHITE, game.white, state, board.capturedByWhite)
             views.setViewVisibility(R.id.white_row, View.VISIBLE)
         } else {
             // No game to show: Black's row carries the status. White's row stays in the layout
             // (invisible) so the board keeps its size and position.
             views.setTextViewText(R.id.black_info, statusText(state))
             views.setViewVisibility(R.id.black_note, View.GONE)
+            views.setViewVisibility(R.id.black_captures, View.GONE)
             views.setViewVisibility(R.id.black_clock, View.GONE)
             views.setViewVisibility(R.id.white_row, View.INVISIBLE)
         }
@@ -91,9 +94,11 @@ object WidgetUpdater {
         return views
     }
 
-    private enum class Side(val index: Int, val info: Int, val note: Int, val clock: Int) {
-        BLACK(0, R.id.black_info, R.id.black_note, R.id.black_clock),
-        WHITE(1, R.id.white_info, R.id.white_note, R.id.white_clock),
+    private enum class Side(val index: Int, val info: Int, val note: Int, val captures: Int, val clock: Int) {
+        BLACK(0, R.id.black_info, R.id.black_note, R.id.black_captures, R.id.black_clock),
+        WHITE(1, R.id.white_info, R.id.white_note, R.id.white_captures, R.id.white_clock);
+
+        val opponent: Side get() = if (this == BLACK) WHITE else BLACK
     }
 
     /**
@@ -107,24 +112,48 @@ object WidgetUpdater {
         return if ((side == Side.WHITE) == filledLooksWhite) "●" else "○"
     }
 
-    private fun showPlayer(ctx: Context, views: RemoteViews, side: Side, p: Player?, game: GameInfo, status: Status) {
+    private fun showPlayer(ctx: Context, views: RemoteViews, side: Side, p: Player?, state: SpectatorState, captures: Int) {
+        val game = state.game ?: return
         views.setTextViewText(side.info, "${stoneBullet(ctx, side)} ${playerLabel(p)}")
 
-        val result = if (status == Status.FINISHED) resultNote(game, side) else null
+        val result = if (state.status == Status.FINISHED) resultNote(game, side) else null
         views.setTextViewText(side.note, result ?: "")
         views.setViewVisibility(side.note, if (result != null) View.VISIBLE else View.GONE)
 
-        val remaining = game.remainingMs?.getOrNull(side.index)
-        if (remaining == null || result != null) {
-            views.setViewVisibility(side.clock, View.GONE)
-            return
-        }
-        // Count down live on the side to move; the other clock stays still.
-        val running = status == Status.WATCHING && game.toMove == side.index
-        views.setChronometer(side.clock, SystemClock.elapsedRealtime() + remaining, null, running)
-        views.setChronometerCountDown(side.clock, true)
-        views.setViewVisibility(side.clock, View.VISIBLE)
+        // Prisoners: the captured stones' bullet and a count, e.g. "●3" for Black taking 3 white stones.
+        views.setTextViewText(side.captures, "${stoneBullet(ctx, side.opponent)}$captures")
+        views.setViewVisibility(side.captures, if (captures > 0) View.VISIBLE else View.GONE)
+
+        val text = if (result == null) clockText(state, side) else null
+        views.setTextViewText(side.clock, text ?: "")
+        views.setViewVisibility(side.clock, if (text != null) View.VISIBLE else View.GONE)
     }
+
+    /** Both clocks as text right now, or null for a side without clock data. */
+    private fun clockText(state: SpectatorState, side: Side, now: Long = SystemClock.elapsedRealtime()): String? {
+        val game = state.game ?: return null
+        val running = state.status == Status.WATCHING
+        fun rem(s: Side) = GameClock.remaining(game, s.index, running && game.toMove == s.index, state.clockAtMs, now)
+        val mine = rem(side) ?: return null
+        return GameClock.format(mine, GameClock.padMinutes(rem(Side.BLACK), rem(Side.WHITE)))
+    }
+
+    /**
+     * Updates only the clock text on [ids] (no board image), for the per-second tick. Returns
+     * how long until the running clock's display next changes, or null if nothing is running.
+     */
+    fun tickClocks(ctx: Context, ids: Collection<Int>, state: SpectatorState): Long? {
+        val game = state.game ?: return null
+        if (state.status != Status.WATCHING || game.remainingMs == null) return null
+        val now = SystemClock.elapsedRealtime()
+        val views = RemoteViews(ctx.packageName, R.layout.widget_go)
+        for (side in Side.entries) clockText(state, side, now)?.let { views.setTextViewText(side.clock, it) }
+        val mgr = AppWidgetManager.getInstance(ctx)
+        for (id in ids) mgr.partiallyUpdateAppWidget(id, views)
+        val running = GameClock.remaining(game, game.toMove, true, state.clockAtMs, now) ?: return null
+        return if (running > 0) GameClock.msUntilNextTick(running) else null
+    }
+
 
     /** "Wins · Resign" on the winner's row, "Draw" on both, or the result on Black's row if the winner is unknown. */
     private fun resultNote(game: GameInfo, side: Side): String? {
