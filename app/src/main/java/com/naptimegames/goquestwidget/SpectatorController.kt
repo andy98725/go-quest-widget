@@ -35,6 +35,8 @@ class SpectatorController(
     val mode: BoardMode,
     topN: Int,
     switchDelayMs: Long = DEFAULT_SWITCH_DELAY_MS,
+    /** When false, games with a bot player are skipped. */
+    private val includeBots: Boolean = true,
     private val send: (api: Api, body: JSONObject) -> Unit,
     private val scheduler: Scheduler,
     private val onState: (SpectatorState) -> Unit,
@@ -104,7 +106,9 @@ class SpectatorController(
     private fun onLiveList(body: JSONObject) {
         if (state.status != SpectatorState.Status.SEARCHING) return
         if (body.optString("gtype", gtype) != gtype) return
-        val rows = GameParser.parseLiveList(body).filter { it.id !in recentlyFinished }
+        val rows = GameParser.parseLiveList(body)
+            .filter { it.id !in recentlyFinished && (includeBots || !it.hasBot) }
+        // Nothing suitable (e.g. only bot games): keep listening; the retry timer asks again.
         if (rows.isEmpty()) return
         pending?.cancel()
         send(Api.LIVE_STOP, liveBody())
@@ -128,6 +132,14 @@ class SpectatorController(
     private fun onGameState(game: GameInfo) {
         val watching = current ?: return
         if (game.id != watching.id) return
+        if (!includeBots && game.hasBot) {
+            // The list didn't flag it, but the full game data shows a bot: move on.
+            remember(game.id)
+            send(Api.GAME_STOP, JSONObject().put("id", game.id))
+            current = null
+            search()
+            return
+        }
         // The result message has no clock data; keep the last known clocks.
         val merged = game.copy(remainingMs = game.remainingMs ?: watching.remainingMs)
         current = merged

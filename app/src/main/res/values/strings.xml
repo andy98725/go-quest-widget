@@ -34,4 +34,5 @@
     <string name="scope_defaults">Defaults for new widgets. To change a widget, long-press it and choose Reconfigure.</string>
     <string name="status_running">Spectating</string>
     <string name="notification_many">Watching %1$d of %2$d games</string>
+    <string name="include_bots">Include bot matches</string>
 </resources>

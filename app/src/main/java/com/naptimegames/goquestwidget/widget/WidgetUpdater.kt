@@ -120,8 +120,8 @@ object WidgetUpdater {
         views.setTextViewText(side.note, result ?: "")
         views.setViewVisibility(side.note, if (result != null) View.VISIBLE else View.GONE)
 
-        // Prisoners: the captured stones' bullet and a count, e.g. "●3" for Black taking 3 white stones.
-        views.setTextViewText(side.captures, "${stoneBullet(ctx, side.opponent)}$captures")
+        // Prisoners: a count and the captured stones' bullet, e.g. "3●" for Black taking 3 white stones.
+        views.setTextViewText(side.captures, "$captures${stoneBullet(ctx, side.opponent)}")
         views.setViewVisibility(side.captures, if (captures > 0) View.VISIBLE else View.GONE)
 
         val text = if (result == null) clockText(state, side) else null

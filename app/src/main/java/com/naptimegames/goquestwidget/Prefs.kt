@@ -35,6 +35,9 @@ object Prefs {
     fun setPostGameDelaySeconds(ctx: Context, s: Int) =
         prefs(ctx).edit().putInt("post_game_delay", s.coerceIn(0, MAX_POST_GAME_DELAY_S)).apply()
 
+    fun includeBots(ctx: Context): Boolean = prefs(ctx).getBoolean("include_bots", true)
+    fun setIncludeBots(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("include_bots", on).apply()
+
     /** Widget background opacity, 0-100. */
     fun backgroundOpacity(ctx: Context): Int = prefs(ctx).getInt("bg_opacity", 90).coerceIn(0, 100)
     fun setBackgroundOpacity(ctx: Context, percent: Int) =
@@ -48,6 +51,7 @@ object Prefs {
         postGameDelaySeconds = postGameDelaySeconds(ctx),
         backgroundOpacity = backgroundOpacity(ctx),
         boardOpacity = boardOpacity(ctx),
+        includeBots = includeBots(ctx),
     )
 
     fun saveDefaults(ctx: Context, s: WidgetSettings) {
@@ -56,6 +60,7 @@ object Prefs {
         setPostGameDelaySeconds(ctx, s.postGameDelaySeconds)
         setBackgroundOpacity(ctx, s.backgroundOpacity)
         setBoardOpacity(ctx, s.boardOpacity)
+        setIncludeBots(ctx, s.includeBots)
     }
 
     /** A widget's settings; anything it hasn't set falls back to the defaults. */
@@ -69,6 +74,7 @@ object Prefs {
             postGameDelaySeconds = p.getInt(k + "delay", d.postGameDelaySeconds).coerceIn(0, MAX_POST_GAME_DELAY_S),
             backgroundOpacity = p.getInt(k + "bg", d.backgroundOpacity).coerceIn(0, 100),
             boardOpacity = p.getInt(k + "board", d.boardOpacity).coerceIn(0, 100),
+            includeBots = p.getBoolean(k + "bots", d.includeBots),
         )
     }
 
@@ -82,13 +88,14 @@ object Prefs {
             .putInt(k + "delay", s.postGameDelaySeconds.coerceIn(0, MAX_POST_GAME_DELAY_S))
             .putInt(k + "bg", s.backgroundOpacity.coerceIn(0, 100))
             .putInt(k + "board", s.boardOpacity.coerceIn(0, 100))
+            .putBoolean(k + "bots", s.includeBots)
             .apply()
     }
 
     fun deleteWidget(ctx: Context, id: Int) {
         val k = "w${id}_"
         val e = prefs(ctx).edit()
-        listOf("mode", "top_n", "delay", "bg", "board").forEach { e.remove(k + it) }
+        listOf("mode", "top_n", "delay", "bg", "board", "bots").forEach { e.remove(k + it) }
         e.apply()
     }
 

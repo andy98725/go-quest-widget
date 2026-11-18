@@ -10,6 +10,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -58,6 +59,7 @@ class SettingsActivity : Activity() {
         settings = if (configuring) Prefs.widget(this, widgetId) else Prefs.defaults(this)
         findViewById<TextView>(R.id.scope_hint).setText(if (configuring) R.string.scope_widget else R.string.scope_defaults)
         setUpBoardModes()
+        setUpIncludeBots()
         setUpTopN()
         setUpPostGameDelay()
         setUpOpacity()
@@ -107,6 +109,12 @@ class SettingsActivity : Activity() {
             val mode = g.findViewById<RadioButton>(checkedId)?.tag as? BoardMode ?: return@setOnCheckedChangeListener
             update(regroup = true) { it.copy(mode = mode) }
         }
+    }
+
+    private fun setUpIncludeBots() {
+        val box = findViewById<CheckBox>(R.id.include_bots)
+        box.isChecked = settings.includeBots
+        box.setOnCheckedChangeListener { _, on -> update(regroup = true) { it.copy(includeBots = on) } }
     }
 
     private fun setUpTopN() {

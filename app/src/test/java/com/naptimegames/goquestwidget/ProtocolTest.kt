@@ -3,6 +3,7 @@ package com.naptimegames.goquestwidget
 import com.naptimegames.goquestwidget.protocol.GameParser
 import com.naptimegames.goquestwidget.protocol.Protocol
 import com.naptimegames.goquestwidget.protocol.Protocol.Api
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,6 +63,24 @@ class ProtocolTest {
         assertEquals("Alice", row.black.name)
         assertEquals("3k", row.white.rankLabel)
         assertNull(GameParser.parseLiveRow("garbage"))
+    }
+
+    @Test
+    fun botFlags() {
+        // Row: the field after each player's rating is assumed to be a bot flag ("0" for people).
+        val row = GameParser.parseLiveRow("g/10////human//3/2000/0//robot//5/2300/1/", "go9")!!
+        assertFalse(row.black.isBot)
+        assertTrue(row.white.isBot)
+        assertTrue(row.hasBot)
+        // Game data: a player "bot" field, or a bot-ish tag; "opp:human" is not one.
+        fun game(extra: String) = GameParser.parseGame(JSONObject("""{"id":"g","players":[{"id":"a"$extra}],"position":{"moves":[]}}"""))!!
+        assertTrue(game(""","bot":1""").hasBot)
+        assertFalse(game(""","bot":0""").hasBot)
+        fun tagged(vararg attrs: String) = GameParser.parseGame(JSONObject().put("id", "g").put("players", JSONArray())
+            .put("attrs", JSONArray().apply { attrs.forEach { put(it) } }))!!.hasBot
+        assertFalse(tagged("opp:human", "opp:strong", "opp:weak"))
+        assertTrue(tagged("opp:bot"))
+        assertTrue(tagged("opp:ai"))
     }
 
     @Test

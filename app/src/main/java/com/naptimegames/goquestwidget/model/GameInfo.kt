@@ -6,6 +6,8 @@ data class Player(
     /** GoQuest rank: positive = dan, negative = kyu. */
     val dan: Int?,
     val rating: Double?,
+    /** A GoQuest bot (AI opponent). How the server marks bots is inferred; see README. */
+    val isBot: Boolean = false,
 ) {
     val rankLabel: String?
         get() = when {
@@ -30,7 +32,12 @@ data class GameInfo(
     val remainingMs: List<Long>?,
     /** 0 = Black won, 1 = White won, null = unknown (from rating changes in the result message). */
     val winnerIndex: Int? = null,
+    /** The game's own tags marked it as a bot match (e.g. an "opp:bot" attribute). */
+    val taggedBot: Boolean = false,
 ) {
+    /** Either player is a bot, or the game is tagged as a bot match. */
+    val hasBot: Boolean get() = taggedBot || players.any { it.isBot }
+
     val black: Player? get() = players.getOrNull(0)
     val white: Player? get() = players.getOrNull(1)
 

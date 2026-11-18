@@ -38,6 +38,7 @@ object GameParser {
                 name = p.optString("name").ifEmpty { p.optString("id") },
                 dan = p.optIntOrNull("dan") ?: p.optIntOrNull("newD"),
                 rating = p.optDoubleOrNull("rating") ?: p.optDoubleOrNull("newR"),
+                isBot = (p.optIntOrNull("bot") ?: 0) != 0 || p.optBoolean("bot", false),
             )
         }
 
@@ -60,10 +61,22 @@ object GameParser {
             finished = obj.optBoolean("finished", false),
             remainingMs = rem,
             winnerIndex = winner,
+            taggedBot = taggedBot(obj),
         )
     }
 
     /** One row of the live list, already in the server's order (strongest game first). */
+    /**
+     * Game tags seen so far look like `"attrs":["opp:human","opp:strong","opp:weak"]`. Treat a tag
+     * naming a bot or AI as a bot match. Unconfirmed: no bot game has been captured yet.
+     */
+    private fun taggedBot(obj: JSONObject): Boolean {
+        val attrs = obj.optJSONArray("attrs") ?: return false
+        return (0 until attrs.length()).any { i ->
+            attrs.optString(i).lowercase().split(':', '_', '-').any { it == "bot" || it == "ai" || it == "cpu" }
+        }
+    }
+
     data class LiveGame(
         val id: String,
         val moveCount: Int,
@@ -73,11 +86,12 @@ object GameParser {
         val gtype: String,
     ) {
         val boardSize: Int get() = gtype.filter { it.isDigit() }.toIntOrNull() ?: 9
+        val hasBot: Boolean get() = black.isBot || white.isBot
     }
 
     /**
      * Parses the live list's "games" array. Each entry is a '/'-separated row:
-     * `id/moves/<gtype if it differs from the list's>/?/?/<black: name/?/dan/rating/?/avatar>/<white: same 6 fields>`.
+     * `id/moves/<gtype if it differs from the list's>/?/?/<black: name/?/dan/rating/bot?/avatar>/<white: same 6 fields>`.
      * The third field reads "go19" for 19x19 games mixed into the go13 list.
      */
     fun parseLiveList(body: JSONObject): List<LiveGame> {
@@ -94,6 +108,8 @@ object GameParser {
             name = f[at],
             dan = f[at + 2].toIntOrNull(),
             rating = f[at + 3].toDoubleOrNull(),
+            // The field after the rating has always been "0" for people; assumed to be a bot flag.
+            isBot = f[at + 4].let { it.isNotEmpty() && it != "0" },
         )
         return LiveGame(f[0], f[1].toIntOrNull() ?: 0, player(5), player(11), f[2].ifEmpty { listGtype })
     }

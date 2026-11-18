@@ -29,11 +29,12 @@ suggests moves or stores player data.
 - **Board choice:** 9×9, 13×13, 13×13 & 19×19, or 19×19. 19×19 games appear in GoQuest's 13×13
   list. The 13×13 and 19×19 options filter it, and fall back to the whole list when nothing
   matches.
+- **Include bot matches** (on by default): turn off to skip games against GoQuest's bots.
 - **Spectate top N games** (default 1): when picking the next game, take the top N and watch
   the one with the fewest moves, so a game that just started wins over one about to end.
 - **Players and clocks:** Black's name, rank and rating above the board and White's below,
   marked with ●/○ bullets chosen to match the text colour. On the right of each row are that
-  player's captures (the captured stones' bullet and a count, e.g. `●3`) and remaining time.
+  player's captures (a count and the captured stones' bullet, e.g. `3●`) and remaining time.
   Clocks read `4:59`, or `04:59` while either player has 10 minutes or more. The side to move
   counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
   "Draw" on both.
@@ -125,10 +126,14 @@ issue or get in touch.
 11. **Draws:** no drawn game has been seen yet. The widget treats any result marker
     mentioning `DRAW`, or a score of exactly 0, as a draw ("Draw" on both rows, no winner).
 
+12. **Bot matches:** no bot game has been seen yet. The widget treats a player as a bot when
+    the list row's field after their rating isn't `0`, when game data has `"bot":1`, or when a
+    game's tags name a bot (e.g. `opp:bot`, `opp:ai`).
+
 ### Project
 
-12. **Release signing:** release builds are signed with the debug key. Distribution needs a
+13. **Release signing:** release builds are signed with the debug key. Distribution needs a
     real signing key, kept out of the repo.
-13. **Name and package:** the app name ("GoQuest Widget") and package
+14. **Name and package:** the app name ("GoQuest Widget") and package
     (`com.naptimegames.goquestwidget`) may need changing, depending on MindWalk's preference.
-14. **Licensing:** decide after talking to MindWalk (open source, exclusive, or transfer).
+15. **Licensing:** decide after talking to MindWalk (open source, exclusive, or transfer).

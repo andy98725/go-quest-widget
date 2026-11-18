@@ -58,6 +58,7 @@ class SpectatorService : Service() {
             mode = key.mode,
             topN = key.topN,
             switchDelayMs = key.postGameDelaySeconds * 1000L,
+            includeBots = key.includeBots,
             send = { msg, body -> client?.send(api.id(msg), body) },
             scheduler = { delay, task ->
                 val r = Runnable(task)

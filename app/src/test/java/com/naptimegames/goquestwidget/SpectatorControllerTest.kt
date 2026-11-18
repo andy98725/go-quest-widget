@@ -18,10 +18,12 @@ class SpectatorControllerTest {
         mode: BoardMode = BoardMode.NINE,
         topN: Int = 1,
         delayMs: Long = SpectatorController.DEFAULT_SWITCH_DELAY_MS,
+        includeBots: Boolean = true,
     ) = SpectatorController(
         mode = mode,
         topN = topN,
         switchDelayMs = delayMs,
+        includeBots = includeBots,
         send = { a, b -> sent += a to b },
         scheduler = { d, t ->
             val entry = d to t
@@ -38,13 +40,17 @@ class SpectatorControllerTest {
         due.forEach { it.second() }
     }
 
-    /** A live-list row; "id:moves" sets the move count (default 10), "id:moves:go19" marks a 19x19 game. */
+    /**
+     * A live-list row: "id:moves" sets the move count (default 10), "id:moves:go19" marks a
+     * 19x19 game, and "id:moves::bot" makes White a bot.
+     */
     private fun row(spec: String): String {
         val parts = spec.split(':')
         val id = parts[0]
         val moves = parts.getOrElse(1) { "10" }
         val type = parts.getOrElse(2) { "" }
-        return "$id/$moves/$type///b_$id//3/2000/0//w_$id//2/1900/0/"
+        val bot = if (parts.getOrElse(3) { "" } == "bot") "1" else "0"
+        return "$id/$moves/$type///b_$id//3/2000/0//w_$id//2/1900/$bot/"
     }
     private fun live(gtype: String, vararg ids: String) =
         JSONObject().put("gtype", gtype).put("page", 0).put("games", JSONArray().apply { ids.forEach { put(row(it)) } })
@@ -200,6 +206,45 @@ class SpectatorControllerTest {
         c.onMessage(Api.LIVE, live("go13", "a:9", "b:4:go19", "c:6"))
         assertEquals(1, sent.count { it.first == Api.GAME })
         assertEquals("b", lastWatched())
+    }
+
+    @Test
+    fun botGamesSkippedWhenExcluded() {
+        val c = controller(includeBots = false)
+        c.onReady()
+        c.onMessage(Api.LIVE, live("go9", "botgame:5::bot", "human:20"))
+        assertEquals("human", lastWatched())
+    }
+
+    @Test
+    fun botGamesIncludedByDefault() {
+        val c = controller(topN = 2)
+        c.onReady()
+        c.onMessage(Api.LIVE, live("go9", "botgame:5::bot", "human:20"))
+        assertEquals("botgame", lastWatched())
+    }
+
+    @Test
+    fun onlyBotGamesMeansKeepWaiting() {
+        val c = controller(includeBots = false)
+        c.onReady()
+        c.onMessage(Api.LIVE, live("go9", "b1:10::bot", "b2:10::bot"))
+        assertEquals(Status.SEARCHING, c.state.status)
+        assertEquals(0, sent.count { it.first == Api.GAME })
+    }
+
+    @Test
+    fun botRevealedByGameDataIsDropped() {
+        val c = controller(includeBots = false)
+        c.onReady()
+        c.onMessage(Api.LIVE, live("go9", "sneaky", "human"))
+        assertEquals("sneaky", lastWatched())
+        val botState = state("sneaky", listOf("B[ee]")).put("attrs", JSONArray().put("opp:bot"))
+        c.onMessage(Api.GAME, botState)
+        assertEquals(Api.LIVE, sent.last().first) // stopped and searching again
+        assertEquals(Status.SEARCHING, c.state.status)
+        c.onMessage(Api.LIVE, live("go9", "sneaky", "human"))
+        assertEquals("human", lastWatched())
     }
 
     /** Replays a server transcript: the widget should follow the top 9x9 game to its end and ignore others. */
