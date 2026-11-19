@@ -38,6 +38,9 @@ object Prefs {
     fun includeBots(ctx: Context): Boolean = prefs(ctx).getBoolean("include_bots", true)
     fun setIncludeBots(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("include_bots", on).apply()
 
+    fun wifiOnly(ctx: Context): Boolean = prefs(ctx).getBoolean("wifi_only", false)
+    fun setWifiOnly(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("wifi_only", on).apply()
+
     /** Widget background opacity, 0-100. */
     fun backgroundOpacity(ctx: Context): Int = prefs(ctx).getInt("bg_opacity", 90).coerceIn(0, 100)
     fun setBackgroundOpacity(ctx: Context, percent: Int) =
@@ -52,6 +55,7 @@ object Prefs {
         backgroundOpacity = backgroundOpacity(ctx),
         boardOpacity = boardOpacity(ctx),
         includeBots = includeBots(ctx),
+        wifiOnly = wifiOnly(ctx),
     )
 
     fun saveDefaults(ctx: Context, s: WidgetSettings) {
@@ -61,6 +65,7 @@ object Prefs {
         setBackgroundOpacity(ctx, s.backgroundOpacity)
         setBoardOpacity(ctx, s.boardOpacity)
         setIncludeBots(ctx, s.includeBots)
+        setWifiOnly(ctx, s.wifiOnly)
     }
 
     /** A widget's settings; anything it hasn't set falls back to the defaults. */
@@ -75,6 +80,7 @@ object Prefs {
             backgroundOpacity = p.getInt(k + "bg", d.backgroundOpacity).coerceIn(0, 100),
             boardOpacity = p.getInt(k + "board", d.boardOpacity).coerceIn(0, 100),
             includeBots = p.getBoolean(k + "bots", d.includeBots),
+            wifiOnly = p.getBoolean(k + "wifi", d.wifiOnly),
         )
     }
 
@@ -89,13 +95,14 @@ object Prefs {
             .putInt(k + "bg", s.backgroundOpacity.coerceIn(0, 100))
             .putInt(k + "board", s.boardOpacity.coerceIn(0, 100))
             .putBoolean(k + "bots", s.includeBots)
+            .putBoolean(k + "wifi", s.wifiOnly)
             .apply()
     }
 
     fun deleteWidget(ctx: Context, id: Int) {
         val k = "w${id}_"
         val e = prefs(ctx).edit()
-        listOf("mode", "top_n", "delay", "bg", "board", "bots").forEach { e.remove(k + it) }
+        listOf("mode", "top_n", "delay", "bg", "board", "bots", "wifi").forEach { e.remove(k + it) }
         e.apply()
     }
 

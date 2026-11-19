@@ -31,6 +31,21 @@
             android:layout_marginTop="8dp"
             android:text="@string/include_bots" />
 
+        <!-- Network -->
+        <TextView
+            style="@style/SettingsHeader"
+            android:text="@string/network" />
+
+        <CheckBox
+            android:id="@+id/wifi_only"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/wifi_only" />
+
+        <TextView
+            style="@style/SettingsHint"
+            android:text="@string/wifi_only_hint" />
+
         <!-- Top N -->
         <TextView
             style="@style/SettingsHeader"

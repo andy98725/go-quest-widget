@@ -60,6 +60,7 @@ class SettingsActivity : Activity() {
         findViewById<TextView>(R.id.scope_hint).setText(if (configuring) R.string.scope_widget else R.string.scope_defaults)
         setUpBoardModes()
         setUpIncludeBots()
+        setUpWifiOnly()
         setUpTopN()
         setUpPostGameDelay()
         setUpOpacity()
@@ -79,8 +80,8 @@ class SettingsActivity : Activity() {
 
     /**
      * Saves a change to whatever this screen edits: the widget being configured, or the
-     * defaults for new widgets. Board, top N and delay may move the widget to another game;
-     * opacity only needs a redraw.
+     * defaults for new widgets. Board, bots, Wi-Fi only, top N and delay may move the widget to
+     * another session; opacity only needs a redraw.
      */
     private fun update(regroup: Boolean, change: (WidgetSettings) -> WidgetSettings) {
         val next = change(settings)
@@ -115,6 +116,12 @@ class SettingsActivity : Activity() {
         val box = findViewById<CheckBox>(R.id.include_bots)
         box.isChecked = settings.includeBots
         box.setOnCheckedChangeListener { _, on -> update(regroup = true) { it.copy(includeBots = on) } }
+    }
+
+    private fun setUpWifiOnly() {
+        val box = findViewById<CheckBox>(R.id.wifi_only)
+        box.isChecked = settings.wifiOnly
+        box.setOnCheckedChangeListener { _, on -> update(regroup = true) { it.copy(wifiOnly = on) } }
     }
 
     private fun setUpTopN() {

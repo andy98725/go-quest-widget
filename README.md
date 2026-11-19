@@ -35,18 +35,19 @@ suggests moves or stores player data.
 - **Players and clocks:** Black's name, rank and rating above the board and White's below,
   marked with ●/○ bullets chosen to match the text colour. On the right of each row are that
   player's captures (a count and the captured stones' bullet, e.g. `3●`) and remaining time.
-  Clocks read `4:59`, or `04:59` while either player has 10 minutes or more. The side to move
-  counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
+  Clocks read `04:59`, or `1:05:09` from an hour. The side to move counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
   "Draw" on both.
 - **Looks:** background and board opacity sliders.
-- **Battery-friendly:** the connection pauses once the screen has been off for 30 s and
-  resumes when it's back on. While spectating, Android shows a silent notification with a Stop
-  button.
+- **Battery-friendly:** the connection runs only while the phone is unlocked. It pauses once
+  the screen has been off for 30 s, and on screen-on it waits for the unlock. The launcher
+  counts the running clock down itself, so the app doesn't wake every second. **Wi-Fi only**
+  (off by default) also pauses on mobile data. While spectating, Android shows a silent
+  notification with a Stop button.
 - **Tap the board** to open the GoQuest app.
 
-- **Per-widget settings:** each widget has its own board, top N, post-game delay and
-  opacity, so you can keep a 9×9 and a 13×13 widget side by side. Widgets with the same board,
-  top N and delay share one game and one connection. Each other setup opens its own
+- **Per-widget settings:** each widget has its own board, bot filter, Wi-Fi only, top N,
+  post-game delay and opacity, so you can keep a 9×9 and a 13×13 widget side by side. Widgets
+  with the same settings apart from opacity share one game and one connection. Each other setup opens its own
   connection, because the server sends moves for only one game per connection.
 
 Settings open when you add a widget, and later via long-press → Reconfigure (Android 12+). The
@@ -108,7 +109,7 @@ issue or get in touch.
 5. **Acceptable use.** Is spectating like this within the terms of service? What request rates or
    connection patterns would they prefer (for example, how often to re-request the live list)?
 6. **Status messages.** The server pushes a lobby status message about every 5 s, which a
-   widget doesn't need. It keeps the phone's radio awake while the screen is on. Could
+   widget doesn't need. It keeps the phone's radio awake while the phone is in use. Could
    spectating clients opt out?
 
 ### Not yet verified

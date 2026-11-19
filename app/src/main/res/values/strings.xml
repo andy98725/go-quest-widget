@@ -35,4 +35,7 @@
     <string name="status_running">Spectating</string>
     <string name="notification_many">Watching %1$d of %2$d games</string>
     <string name="include_bots">Include bot matches</string>
+    <string name="network">Network</string>
+    <string name="wifi_only">Wi-Fi only</string>
+    <string name="wifi_only_hint">Pauses while the phone is on mobile data.</string>
 </resources>

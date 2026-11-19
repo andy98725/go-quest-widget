@@ -1,5 +1,6 @@
 package com.naptimegames.goquestwidget
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,13 +13,13 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
-import com.naptimegames.goquestwidget.model.GameClock
 import com.naptimegames.goquestwidget.model.WidgetSettings
 import com.naptimegames.goquestwidget.protocol.GoQuestClient
 import com.naptimegames.goquestwidget.protocol.Protocol
@@ -29,7 +30,8 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Feeds the widgets while any exist and the screen is on. Widgets with the same game-picking
+ * Feeds the widgets while any exist and the phone is in use (screen on and unlocked), and for
+ * Wi-Fi-only widgets while on Wi-Fi. Widgets with the same game-picking
  * setup share a [Session]; each session has its own connection, because the server only sends
  * moves for one watched game per connection. Everything here runs on the main thread.
  */
@@ -46,7 +48,7 @@ class SpectatorService : Service() {
         private var client: GoQuestClient? = null
         private var api = Protocol.ApiTable()
         private var reconnectDelayMs = MIN_RECONNECT_MS
-        private val reconnect = Runnable { connect() }
+        private val reconnect = Runnable { resume() }
         private val keepAlive = object : Runnable {
             override fun run() {
                 client?.keepAlive()
@@ -70,6 +72,17 @@ class SpectatorService : Service() {
 
         val connected: Boolean get() = client != null
         private val tag get() = key.mode.gtype
+
+        /** Whether this session may hold a connection: the phone is in use and, if Wi-Fi only, on Wi-Fi. */
+        val allowed: Boolean get() = isInUse() && (!key.wifiOnly || onWifi())
+
+        private fun pausedReason() = if (!isInUse()) PAUSED_NOT_IN_USE else PAUSED_MOBILE_DATA
+
+        /** Connects if allowed; otherwise shows why it's paused. */
+        fun resume() {
+            if (connected) return
+            if (allowed) connect() else disconnect(pausedReason())
+        }
 
         fun connect() {
             main.removeCallbacks(reconnect)
@@ -110,11 +123,13 @@ class SpectatorService : Service() {
                 controller.onDisconnected("No network — waiting")
                 return
             }
-            controller.onDisconnected("$reason — reconnecting")
-            if (isScreenOn()) {
-                main.postDelayed(reconnect, reconnectDelayMs)
-                reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_MS)
+            if (!allowed) {
+                controller.onDisconnected(pausedReason())
+                return
             }
+            controller.onDisconnected("$reason — reconnecting")
+            main.postDelayed(reconnect, reconnectDelayMs)
+            reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(MAX_RECONNECT_MS)
         }
 
         /** Reconnects straight away with a fresh backoff, e.g. when a network appears. */
@@ -126,7 +141,7 @@ class SpectatorService : Service() {
         fun disconnect(reason: String? = null) {
             main.removeCallbacks(reconnect)
             main.removeCallbacks(keepAlive)
-            main.removeCallbacks(tick)
+            main.removeCallbacks(clockChange)
             client?.close()
             client = null
             if (reason != null) controller.onDisconnected(reason)
@@ -142,12 +157,16 @@ class SpectatorService : Service() {
         private var clockAt = 0L
         private var last: SpectatorState? = null
 
-        /** Ticks the clock text once a second while a game is on, without redrawing the board. */
-        private val tick = object : Runnable {
+        /**
+         * Redraws only the clocks: once at the first second change after a move, to line the
+         * launcher's ticks up with the second changes, and at 00:00, to stop the countdown. The
+         * launcher ticks the seconds itself.
+         */
+        private val clockChange = object : Runnable {
             override fun run() {
                 val s = last ?: return
-                val next = WidgetUpdater.tickClocks(this@SpectatorService, widgetIds, s) ?: return
-                main.postDelayed(this, next + TICK_SLACK_MS)
+                val next = WidgetUpdater.updateClocks(this@SpectatorService, widgetIds, s) ?: return
+                main.postDelayed(this, next + CLOCK_CHANGE_SLACK_MS)
             }
         }
 
@@ -162,16 +181,14 @@ class SpectatorService : Service() {
             last = stamped
             for (id in widgetIds) states[id] = stamped
             WidgetUpdater.update(this@SpectatorService, widgetIds, stamped)
-            scheduleTick(stamped)
+            scheduleClockChange(stamped)
             if (!destroyed) notifyStatus()
         }
 
-        private fun scheduleTick(s: SpectatorState) {
-            main.removeCallbacks(tick)
-            val game = s.game ?: return
-            if (s.status != SpectatorState.Status.WATCHING) return
-            val running = GameClock.remaining(game, game.toMove, true, s.clockAtMs, SystemClock.elapsedRealtime()) ?: return
-            if (running > 0) main.postDelayed(tick, GameClock.msUntilNextTick(running) + TICK_SLACK_MS)
+        private fun scheduleClockChange(s: SpectatorState) {
+            main.removeCallbacks(clockChange)
+            val next = WidgetUpdater.msUntilSecondChange(s) ?: return
+            main.postDelayed(clockChange, next + CLOCK_CHANGE_SLACK_MS)
         }
     }
 
@@ -182,6 +199,7 @@ class SpectatorService : Service() {
         registerReceiver(screenReceiver, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
         })
         screenReceiverRegistered = true
         getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
@@ -190,7 +208,8 @@ class SpectatorService : Service() {
     /**
      * Follows the phone's default network. When it changes (Wi-Fi ↔ mobile data), existing
      * connections are on the old network and will die, so move them now instead of waiting
-     * for the error. When a network comes back, reconnect anything that was waiting.
+     * for the error, and pause Wi-Fi-only sessions on mobile data. When a network comes back,
+     * reconnect anything that was waiting.
      */
     private var network: Network? = null
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -201,15 +220,25 @@ class SpectatorService : Service() {
     private fun onNetwork(n: Network) {
         val previous = network
         network = n
-        if (destroyed || !isScreenOn()) return
-        val toMove = if (previous != null && previous != n) sessions.values.toList() else sessions.values.filter { !it.connected }
-        if (toMove.isEmpty()) return
-        ProtocolLog.add("--", if (previous != null && previous != n) "Network changed, reconnecting" else "Network available, reconnecting")
-        toMove.forEach { it.reconnectNow() }
+        if (destroyed || !isInUse() || sessions.isEmpty()) return
+        val changed = previous != null && previous != n
+        ProtocolLog.add("--", if (changed) "Network changed" else "Network available")
+        for (session in sessions.values.toList()) when {
+            session.connected && !session.allowed -> session.disconnect(PAUSED_MOBILE_DATA)
+            session.connected && changed -> session.reconnectNow()
+            !session.connected -> session.resume()
+        }
     }
 
     private fun hasNetwork(): Boolean =
         getSystemService(ConnectivityManager::class.java).activeNetwork != null
+
+    /** Whether the default network is Wi-Fi (or Ethernet), for Wi-Fi-only widgets. */
+    private fun onWifi(): Boolean {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(network ?: cm.activeNetwork) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         goForeground()
@@ -267,9 +296,7 @@ class SpectatorService : Service() {
         for ((key, members) in wanted) {
             val session = sessions.getOrPut(key) { Session(key, members) }
             session.widgetIds = members
-            if (!session.connected) {
-                if (isScreenOn()) session.connect() else session.disconnect("Paused while screen is off")
-            }
+            session.resume()
         }
         states.keys.retainAll(ids.toSet())
         // Redraw everyone: widgets may have moved sessions or changed opacity.
@@ -294,28 +321,34 @@ class SpectatorService : Service() {
     }
 
     /** Disconnects once the screen has been off for [SCREEN_OFF_GRACE_MS], so a quick glance doesn't reconnect. */
-    private val pauseForScreenOff = Runnable {
+    private val pauseWhileAway = Runnable {
         ProtocolLog.add("--", "Screen off, pausing")
-        sessions.values.forEach { it.disconnect("Paused while screen is off") }
+        sessions.values.forEach { it.disconnect(PAUSED_NOT_IN_USE) }
     }
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> main.postDelayed(pauseForScreenOff, SCREEN_OFF_GRACE_MS)
-                Intent.ACTION_SCREEN_ON -> {
-                    main.removeCallbacks(pauseForScreenOff)
-                    val idle = sessions.values.filter { !it.connected }
-                    if (idle.isNotEmpty()) {
-                        ProtocolLog.add("--", "Screen on, reconnecting")
-                        idle.forEach { it.connect() }
-                    }
-                }
+                Intent.ACTION_SCREEN_OFF -> main.postDelayed(pauseWhileAway, SCREEN_OFF_GRACE_MS)
+                // The widget can't be seen on the lock screen, so a locked phone waits for the unlock.
+                Intent.ACTION_SCREEN_ON -> if (!isLocked()) resumeAll()
+                Intent.ACTION_USER_PRESENT -> resumeAll()
             }
         }
     }
 
-    private fun isScreenOn() = getSystemService(PowerManager::class.java).isInteractive
+    private fun resumeAll() {
+        main.removeCallbacks(pauseWhileAway)
+        val idle = sessions.values.filter { !it.connected }
+        if (idle.isEmpty()) return
+        ProtocolLog.add("--", "Phone in use, reconnecting")
+        idle.forEach { it.resume() }
+    }
+
+    private fun isLocked() = getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    /** Screen on and unlocked: the only time the widget can be seen. */
+    private fun isInUse() = getSystemService(PowerManager::class.java).isInteractive && !isLocked()
 
     private fun notifyStatus() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
@@ -375,8 +408,10 @@ class SpectatorService : Service() {
         private const val MAX_RECONNECT_MS = 60_000L
         private const val KEEPALIVE_MS = 60_000L
         private const val SCREEN_OFF_GRACE_MS = 30_000L
-        /** Fire just after the displayed second changes, never just before. */
-        private const val TICK_SLACK_MS = 20L
+        /** Redraw just after the shown second changes, never just before. */
+        private const val CLOCK_CHANGE_SLACK_MS = 20L
+        private const val PAUSED_NOT_IN_USE = "Paused while not in use"
+        private const val PAUSED_MOBILE_DATA = "Paused on mobile data"
 
         /** The latest state shown on each widget, by widget id; empty when not running. */
         private val states = ConcurrentHashMap<Int, SpectatorState>()

@@ -17,6 +17,7 @@ import com.naptimegames.goquestwidget.SpectatorState
 import com.naptimegames.goquestwidget.SpectatorState.Status
 import com.naptimegames.goquestwidget.model.Board
 import com.naptimegames.goquestwidget.model.GameClock
+import com.naptimegames.goquestwidget.model.GameClock.ClockFace
 import com.naptimegames.goquestwidget.model.GameInfo
 import com.naptimegames.goquestwidget.model.Player
 import com.naptimegames.goquestwidget.model.WidgetSettings
@@ -124,34 +125,58 @@ object WidgetUpdater {
         views.setTextViewText(side.captures, "$captures${stoneBullet(ctx, side.opponent)}")
         views.setViewVisibility(side.captures, if (captures > 0) View.VISIBLE else View.GONE)
 
-        val text = if (result == null) clockText(state, side) else null
-        views.setTextViewText(side.clock, text ?: "")
-        views.setViewVisibility(side.clock, if (text != null) View.VISIBLE else View.GONE)
+        val face = if (result == null) clockFace(state, side) else null
+        face?.let { showClock(views, side.clock, it) }
+        views.setViewVisibility(side.clock, if (face != null) View.VISIBLE else View.GONE)
     }
 
-    /** Both clocks as text right now, or null for a side without clock data. */
-    private fun clockText(state: SpectatorState, side: Side, now: Long = SystemClock.elapsedRealtime()): String? {
+    /** A side's clock face right now, or null for a side without clock data. */
+    private fun clockFace(state: SpectatorState, side: Side): ClockFace? {
         val game = state.game ?: return null
-        val running = state.status == Status.WATCHING
-        fun rem(s: Side) = GameClock.remaining(game, s.index, running && game.toMove == s.index, state.clockAtMs, now)
-        val mine = rem(side) ?: return null
-        return GameClock.format(mine, GameClock.padMinutes(rem(Side.BLACK), rem(Side.WHITE)))
+        return GameClock.face(game, side.index, game.toMove, state.status == Status.WATCHING, state.clockAtMs, SystemClock.elapsedRealtime())
+    }
+
+    private fun showClock(views: RemoteViews, id: Int, face: ClockFace) = when (face) {
+        is ClockFace.Fixed -> {
+            // Stop any countdown first; a stopped Chronometer keeps the text it is given.
+            views.setChronometer(id, 0, null, false)
+            views.setTextViewText(id, face.text)
+        }
+        is ClockFace.Countdown -> {
+            // Stop, then start: a Chronometer ticks every 1000 ms from its start, so this restarts
+            // its ticks at the moment of this update.
+            views.setChronometerCountDown(id, true)
+            views.setChronometer(id, face.chronometerBase, null, false)
+            views.setChronometer(id, face.chronometerBase, null, true)
+        }
     }
 
     /**
-     * Updates only the clock text on [ids] (no board image), for the per-second tick. Returns
-     * how long until the running clock's display next changes, or null if nothing is running.
+     * Time until the running clock's shown second next changes, or null if no clock runs.
+     * Restarting its Chronometer then keeps the launcher's ticks on the second changes.
      */
-    fun tickClocks(ctx: Context, ids: Collection<Int>, state: SpectatorState): Long? {
+    fun msUntilSecondChange(state: SpectatorState): Long? {
         val game = state.game ?: return null
-        if (state.status != Status.WATCHING || game.remainingMs == null) return null
-        val now = SystemClock.elapsedRealtime()
+        val face = GameClock.face(game, game.toMove, game.toMove, state.status == Status.WATCHING, state.clockAtMs, SystemClock.elapsedRealtime())
+        return (face as? ClockFace.Countdown)?.let { GameClock.msUntilSecondChange(it.chronometerBase, SystemClock.elapsedRealtime()) }
+    }
+
+    /** Time until the running clock reaches 00:00, or null if none runs. */
+    fun msUntilClockChange(state: SpectatorState): Long? {
+        val game = state.game ?: return null
+        return GameClock.msUntilFaceChange(game, game.toMove, state.status == Status.WATCHING, state.clockAtMs, SystemClock.elapsedRealtime())
+    }
+
+    /**
+     * Updates only the clocks on [ids] (no board image): to line the countdown up with the
+     * second changes, or to stop it at 00:00. Returns the time until the stop, or null if none is due.
+     */
+    fun updateClocks(ctx: Context, ids: Collection<Int>, state: SpectatorState): Long? {
         val views = RemoteViews(ctx.packageName, R.layout.widget_go)
-        for (side in Side.entries) clockText(state, side, now)?.let { views.setTextViewText(side.clock, it) }
+        for (side in Side.entries) clockFace(state, side)?.let { showClock(views, side.clock, it) }
         val mgr = AppWidgetManager.getInstance(ctx)
         for (id in ids) mgr.partiallyUpdateAppWidget(id, views)
-        val running = GameClock.remaining(game, game.toMove, true, state.clockAtMs, now) ?: return null
-        return if (running > 0) GameClock.msUntilNextTick(running) else null
+        return msUntilClockChange(state)
     }
 
 
