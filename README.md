@@ -35,12 +35,12 @@ suggests moves or stores player data.
 - **Players and clocks:** Black's name, rank and rating above the board and White's below,
   marked with ●/○ bullets chosen to match the text colour. On the right of each row are that
   player's captures (a count and the captured stones' bullet, e.g. `3●`) and remaining time.
-  Clocks read `04:59`, or `1:05:09` from an hour. The side to move counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
+  Clocks read `4:59`. The side to move counts down live. The result ("Wins · Resign", "Wins · 4 pts") shows on the winner's row, or
   "Draw" on both.
 - **Looks:** background and board opacity sliders.
-- **Battery-friendly:** the connection runs only while the phone is unlocked. It pauses once
-  the screen has been off for 30 s, and on screen-on it waits for the unlock. The launcher
-  counts the running clock down itself, so the app doesn't wake every second. **Wi-Fi only**
+- **Battery-friendly:** the connection and the clock ticks run only while the phone is
+  unlocked. They pause once the screen has been off for 30 s, and on screen-on they wait for
+  the unlock. **Wi-Fi only**
   (off by default) also pauses on mobile data. While spectating, Android shows a silent
   notification with a Stop button.
 - **Tap the board** to open the GoQuest app.

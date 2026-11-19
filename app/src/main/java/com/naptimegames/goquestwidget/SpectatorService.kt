@@ -141,7 +141,7 @@ class SpectatorService : Service() {
         fun disconnect(reason: String? = null) {
             main.removeCallbacks(reconnect)
             main.removeCallbacks(keepAlive)
-            main.removeCallbacks(clockChange)
+            main.removeCallbacks(tick)
             client?.close()
             client = null
             if (reason != null) controller.onDisconnected(reason)
@@ -157,16 +157,12 @@ class SpectatorService : Service() {
         private var clockAt = 0L
         private var last: SpectatorState? = null
 
-        /**
-         * Redraws only the clocks: once at the first second change after a move, to line the
-         * launcher's ticks up with the second changes, and at 00:00, to stop the countdown. The
-         * launcher ticks the seconds itself.
-         */
-        private val clockChange = object : Runnable {
+        /** Ticks the clock text once a second while a game is on, without redrawing the board. */
+        private val tick = object : Runnable {
             override fun run() {
                 val s = last ?: return
-                val next = WidgetUpdater.updateClocks(this@SpectatorService, widgetIds, s) ?: return
-                main.postDelayed(this, next + CLOCK_CHANGE_SLACK_MS)
+                val next = WidgetUpdater.tickClocks(this@SpectatorService, widgetIds, s) ?: return
+                main.postDelayed(this, next + TICK_SLACK_MS)
             }
         }
 
@@ -181,14 +177,14 @@ class SpectatorService : Service() {
             last = stamped
             for (id in widgetIds) states[id] = stamped
             WidgetUpdater.update(this@SpectatorService, widgetIds, stamped)
-            scheduleClockChange(stamped)
+            scheduleTick(stamped)
             if (!destroyed) notifyStatus()
         }
 
-        private fun scheduleClockChange(s: SpectatorState) {
-            main.removeCallbacks(clockChange)
-            val next = WidgetUpdater.msUntilSecondChange(s) ?: return
-            main.postDelayed(clockChange, next + CLOCK_CHANGE_SLACK_MS)
+        private fun scheduleTick(s: SpectatorState) {
+            main.removeCallbacks(tick)
+            val next = WidgetUpdater.msUntilNextTick(s) ?: return
+            main.postDelayed(tick, next + TICK_SLACK_MS)
         }
     }
 
@@ -408,8 +404,8 @@ class SpectatorService : Service() {
         private const val MAX_RECONNECT_MS = 60_000L
         private const val KEEPALIVE_MS = 60_000L
         private const val SCREEN_OFF_GRACE_MS = 30_000L
-        /** Redraw just after the shown second changes, never just before. */
-        private const val CLOCK_CHANGE_SLACK_MS = 20L
+        /** Fire just after the displayed second changes, never just before. */
+        private const val TICK_SLACK_MS = 20L
         private const val PAUSED_NOT_IN_USE = "Paused while not in use"
         private const val PAUSED_MOBILE_DATA = "Paused on mobile data"
 
